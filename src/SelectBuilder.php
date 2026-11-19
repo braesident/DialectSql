@@ -393,7 +393,8 @@ final class SelectBuilder
 
       $dialectMap = [
         'mysql'  => ['mysql', 'mariadb'],
-        'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql']
+        'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql'],
+        'pgsql'  => ['pgsql', 'postgres', 'postgresql']
       ];
 
       if (isset($dialectMap[$dialectName])) {
@@ -830,6 +831,15 @@ final class SelectBuilder
 
   private function renderLimitOffset(?int $limit, ?int $offset): string
   {
+    if ('pgsql' === $this->dialect) {
+      if ((null !== $limit && $limit < 0) || (null !== $offset && $offset < 0)) {
+        throw new InvalidArgumentException('PostgreSQL limit/offset darf nicht negativ sein.');
+      }
+
+      return (null !== $limit ? 'LIMIT '.$limit : '')
+        .(null !== $offset ? (null !== $limit ? ' ' : '').'OFFSET '.$offset : '');
+    }
+
     if ('sqlsrv' === $this->dialect) {
       $off = max(0, (int) ($offset ?? 0));
       $lim = null !== $limit ? max(0, (int) $limit) : null;
@@ -931,6 +941,9 @@ final class SelectBuilder
       }
       if (isset($normalized['between'])) {
         $between = $normalized['between'];
+        if (\is_object($between)) {
+          $between = get_object_vars($between);
+        }
         $expr    = $between['expr'] ?? $between['col'] ?? null;
         $min     = $between['min'] ?? null;
         $max     = $between['max'] ?? null;
@@ -968,6 +981,10 @@ final class SelectBuilder
     }
 
     if (\is_bool($expr)) {
+      if ('pgsql' === $this->dialect) {
+        return $expr ? 'TRUE' : 'FALSE';
+      }
+
       return $expr ? '1' : '0';
     }
 
@@ -1007,6 +1024,10 @@ final class SelectBuilder
       }
 
       if (isset($expr['col'])) {
+        if ('pgsql' === $this->dialect && \is_string($expr['col'])) {
+          return $this->quoteIdentifierPath($expr['col']);
+        }
+
         return \is_string($expr['col']) ? $expr['col'] : $this->renderExpr($expr['col']);
       }
 
@@ -1187,10 +1208,21 @@ final class SelectBuilder
       throw new InvalidArgumentException('Funktionsname fehlt.');
     }
 
+    if (\in_array($fn, ['date_add', 'dateadd'], true)) {
+      return $this->renderDateAddSub($args, false);
+    }
+    if (\in_array($fn, ['date_sub', 'datesub'], true)) {
+      return $this->renderDateAddSub($args, true);
+    }
+
     $normalizedArgs = $this->normalizeFunctionArgs($fn, $args);
 
     if (\in_array($fn, ['ifnull', 'isnull', 'is_null'], true)) {
-      $fnName = 'sqlsrv' === $this->dialect ? 'ISNULL' : 'IFNULL';
+      $fnName = match ($this->dialect) {
+        'sqlsrv' => 'ISNULL',
+        'pgsql' => 'COALESCE',
+        default => 'IFNULL'
+      };
 
       return $fnName.'('.implode(', ', $normalizedArgs).')';
     }
@@ -1230,6 +1262,15 @@ final class SelectBuilder
         return 'FORMAT('.$normalizedArgs[0].', '.$formatSql.')';
       }
 
+      if ('pgsql' === $this->dialect) {
+        $format = $this->extractLiteral($args, 1);
+        if ('' === $format && "''" !== $normalizedArgs[1]) {
+          throw new InvalidArgumentException('PostgreSQL date_format benötigt einen literalen Formatstring.');
+        }
+
+        return 'TO_CHAR('.$normalizedArgs[0].', '.$this->renderLiteral($this->convertDateFormatToPostgreSql($format)).')';
+      }
+
       return 'DATE_FORMAT('.$normalizedArgs[0].', '.$normalizedArgs[1].')';
     }
 
@@ -1245,14 +1286,6 @@ final class SelectBuilder
       }
 
       return mb_strtoupper($fn).'('.implode(', ', $normalizedArgs).')';
-    }
-
-    if (\in_array($fn, ['date_add', 'dateadd'], true)) {
-      return $this->renderDateAddSub($args, false);
-    }
-
-    if (\in_array($fn, ['date_sub', 'datesub'], true)) {
-      return $this->renderDateAddSub($args, true);
     }
 
     $fnName = mb_strtoupper($fn);
@@ -1342,6 +1375,12 @@ final class SelectBuilder
       }
 
       return 'DATEADD('.$unitSql.', '.$amountSql.', '.$exprSql.')';
+    }
+
+    if ('pgsql' === $this->dialect) {
+      $interval = 'QUARTER' === $unitSql ? '3 months' : '1 '.mb_strtolower($unitSql);
+
+      return '('.$exprSql.($subtract ? ' - ' : ' + ').'('.$amountSql.") * INTERVAL '".$interval."')";
     }
 
     $fnName = $subtract ? 'DATE_SUB' : 'DATE_ADD';
@@ -1443,6 +1482,10 @@ final class SelectBuilder
       return 'NULL';
     }
     if (\is_bool($value)) {
+      if ('pgsql' === $this->dialect) {
+        return $value ? 'TRUE' : 'FALSE';
+      }
+
       return $value ? '1' : '0';
     }
     if (\is_int($value) || \is_float($value)) {
@@ -1499,6 +1542,9 @@ final class SelectBuilder
     if ('sqlsrv' === $this->dialect) {
       return '['.$name.']';
     }
+    if ('pgsql' === $this->dialect) {
+      return '"'.str_replace('"', '""', $name).'"';
+    }
 
     return '`'.$name.'`';
   }
@@ -1549,6 +1595,37 @@ final class SelectBuilder
     return $out;
   }
 
+  private function convertDateFormatToPostgreSql(string $format): string
+  {
+    $map = [
+      '%Y' => 'YYYY', '%y' => 'YY', '%m' => 'MM', '%c' => 'FMMM',
+      '%d' => 'DD', '%e' => 'FMDD', '%H' => 'HH24', '%k' => 'FMHH24',
+      '%h' => 'HH12', '%I' => 'HH12', '%l' => 'FMHH12', '%i' => 'MI',
+      '%s' => 'SS', '%S' => 'SS', '%T' => 'HH24:MI:SS', '%r' => 'HH12:MI:SS AM',
+      '%b' => 'Mon', '%M' => 'FMMonth', '%a' => 'Dy', '%W' => 'FMDay',
+      '%j' => 'DDD', '%p' => 'AM', '%f' => 'US', '%%' => '"%"'
+    ];
+    $out = '';
+    for ($index = 0, $length = strlen($format); $index < $length; ++$index) {
+      if ('%' === $format[$index]) {
+        $token = substr($format, $index, 2);
+        if ( ! isset($map[$token])) {
+          throw new InvalidArgumentException('PostgreSQL date_format unterstützt '.$token.' nicht; nutze TO_CHAR über raw.');
+        }
+        $out .= $map[$token];
+        ++$index;
+      } else {
+        $start = $index;
+        while ($index + 1 < $length && '%' !== $format[$index + 1]) {
+          ++$index;
+        }
+        $out .= '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], substr($format, $start, $index - $start + 1)).'"';
+      }
+    }
+
+    return $out;
+  }
+
   private static function looksLikeQuery(mixed $value): bool
   {
     if (\is_object($value)) {
@@ -1576,7 +1653,7 @@ final class SelectBuilder
       if ( ! \is_string($dialectValue) || '' === $dialectValue) {
         throw new InvalidArgumentException('SQL-Dialekt fehlt.');
       }
-      $context['dialect'] = mb_strtolower($dialectValue);
+      $context['dialect'] = self::normalizeDialectName($dialectValue);
 
       return $context;
     }
@@ -1585,7 +1662,14 @@ final class SelectBuilder
       throw new InvalidArgumentException('SQL-Dialekt fehlt.');
     }
 
-    return ['dialect' => mb_strtolower($dialect)];
+    return ['dialect' => self::normalizeDialectName($dialect)];
+  }
+
+  private static function normalizeDialectName(string $dialect): string
+  {
+    $dialect = mb_strtolower(trim($dialect));
+
+    return \in_array($dialect, ['pgsql', 'postgres', 'postgresql'], true) ? 'pgsql' : $dialect;
   }
 
   private static function normalizeDialect(string|array $dialect): string

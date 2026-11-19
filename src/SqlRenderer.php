@@ -95,7 +95,8 @@ final class SqlRenderer
     }
 
     if (isset($normalized['builder']) || isset($normalized['definition']) || isset($normalized['type'])) {
-      $definition = $normalized['definition'] ?? $normalized;
+      // Keep camelCase definition fields such as primaryKey, foreignKeys and ifNotExists.
+      $definition = $normalized['definition'] ?? array_merge($query, $normalized);
 
       return SqlBuilder::build($definition, $this->getDialectContext());
     }
@@ -141,7 +142,7 @@ final class SqlRenderer
   {
     $keys = array_map(static fn ($key) => mb_strtolower((string) $key), array_keys($definition));
 
-    return (bool) array_intersect($keys, ['mysql', 'mariadb', 'sqlsrv', 'sqlserver', 'mssql', 'sql', 'default']);
+    return (bool) array_intersect($keys, ['mysql', 'mariadb', 'sqlsrv', 'sqlserver', 'mssql', 'pgsql', 'postgres', 'postgresql', 'sql', 'default']);
   }
 
   private function resolveDialectSql(array $definition): string|array
@@ -149,7 +150,8 @@ final class SqlRenderer
     $dialect    = $this->getDialect();
     $dialectMap = [
       'mysql'  => ['mysql', 'mariadb'],
-      'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql']
+      'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql'],
+      'pgsql'  => ['pgsql', 'postgres', 'postgresql']
     ];
 
     if (isset($dialectMap[$dialect])) {
@@ -204,6 +206,9 @@ final class SqlRenderer
       if (\in_array($driver, ['sqlsrv', 'dblib', 'mssql'], true)) {
         return 'sqlsrv';
       }
+      if ('pgsql' === $driver) {
+        return 'pgsql';
+      }
     }
 
     return 'mysql';
@@ -236,6 +241,9 @@ final class SqlRenderer
     }
     if ('sqlsrv' === $dialect) {
       return \in_array('sqlsrv', $list, true);
+    }
+    if ('pgsql' === $dialect) {
+      return \in_array('pgsql', $list, true);
     }
     if ('mysql' === $dialect) {
       if (\in_array('mysql', $list, true)) {
@@ -284,6 +292,10 @@ final class SqlRenderer
       }
       if (\in_array($token, ['sqlsrv', 'sqlserver', 'mssql'], true)) {
         $out[] = 'sqlsrv';
+        continue;
+      }
+      if (\in_array($token, ['pgsql', 'postgres', 'postgresql'], true)) {
+        $out[] = 'pgsql';
         continue;
       }
       if (\in_array($token, ['maria', 'mariadb'], true)) {

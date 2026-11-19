@@ -66,4 +66,5 @@ $renderer = new SqlRenderer(new DialectConnection('mysql', '10.11.6-MariaDB'));
 check('SELECT 3' === $renderer->render(['only' => ['mariadb'], 'sql' => 'SELECT 3']), 'MariaDB-Filter müssen Produktinformationen berücksichtigen.');
 check( ! class_exists('Braesident\\DbMigration\\Migration', false), 'DbMigration darf nicht vorausgesetzt werden.');
 check( ! class_exists('Braesident\\CipherPDO\\CipherPDO', false), 'CipherPDO darf nicht vorausgesetzt werden.');
+require __DIR__.'/postgresql.php';
 echo "DialectSql: {$checks} Prüfungen erfolgreich.\n";

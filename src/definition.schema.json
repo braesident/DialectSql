@@ -86,6 +86,15 @@
         },
         "default": {
           "$ref": "#/$defs/sqlString"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgresql": {
+          "$ref": "#/$defs/sqlString"
         }
       },
       "minProperties": 1
@@ -147,6 +156,15 @@
           "$ref": "#/$defs/sqlString"
         },
         "default": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgresql": {
           "$ref": "#/$defs/sqlString"
         }
       },
@@ -320,6 +338,23 @@
         },
         "wrapBody": {
           "type": "boolean"
+        },
+        "function": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sqlString"
+            },
+            {
+              "$ref": "#/$defs/dialectSqlString"
+            }
+          ],
+          "description": "PostgreSQL: Name einer bereits bestehenden Triggerfunktion."
+        },
+        "functionArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -354,7 +389,7 @@
           ]
         },
         {
-          "oneOf": [
+          "anyOf": [
             {
               "required": [
                 "body"
@@ -368,6 +403,11 @@
             {
               "required": [
                 "sql"
+              ]
+            },
+            {
+              "required": [
+                "function"
               ]
             }
           ]
@@ -426,6 +466,23 @@
         },
         "wrapBody": {
           "type": "boolean"
+        },
+        "function": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sqlString"
+            },
+            {
+              "$ref": "#/$defs/dialectSqlString"
+            }
+          ],
+          "description": "PostgreSQL: Name einer bereits bestehenden Triggerfunktion."
+        },
+        "functionArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -460,7 +517,7 @@
           ]
         },
         {
-          "oneOf": [
+          "anyOf": [
             {
               "required": [
                 "body"
@@ -474,6 +531,11 @@
             {
               "required": [
                 "sql"
+              ]
+            },
+            {
+              "required": [
+                "function"
               ]
             }
           ]
@@ -997,7 +1059,7 @@
           "const": "modify_column"
         },
         "column": {
-          "$ref": "#/$defs/column"
+          "$ref": "#/$defs/columnChange"
         },
         "after": {
           "type": "string",
@@ -1417,7 +1479,7 @@
         "type": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^((tiny|small|big)?int|boolean|(long|medium)?text|string|(tiny|medium|long)?blob|json|datetime|timestamp|date|decimal){1}$"
+          "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
         },
         "length": {
           "type": "integer",
@@ -1480,6 +1542,15 @@
         },
         "comment": {
           "type": "string"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgresql": {
+          "$ref": "#/$defs/sqlString"
         }
       },
       "required": [
@@ -1668,6 +1739,15 @@
         },
         "default": {
           "$ref": "#/$defs/sqlStringOrList"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlStringOrList"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlStringOrList"
+        },
+        "postgresql": {
+          "$ref": "#/$defs/sqlStringOrList"
         }
       },
       "minProperties": 1
@@ -1695,6 +1775,15 @@
           "$ref": "#/$defs/sqlString"
         },
         "default": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgresql": {
           "$ref": "#/$defs/sqlString"
         }
       },
@@ -1760,6 +1849,15 @@
           "$ref": "#/$defs/triggerBodyItemOrList"
         },
         "default": {
+          "$ref": "#/$defs/triggerBodyItemOrList"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/triggerBodyItemOrList"
+        },
+        "postgres": {
+          "$ref": "#/$defs/triggerBodyItemOrList"
+        },
+        "postgresql": {
           "$ref": "#/$defs/triggerBodyItemOrList"
         }
       },
@@ -2354,6 +2452,96 @@
           "type": "boolean"
         }
       }
+    },
+    "columnChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "default": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "onUpdate": {
+          "type": "string"
+        },
+        "unsigned": {
+          "type": "boolean"
+        },
+        "autoIncrement": {
+          "type": "boolean"
+        },
+        "identity": {
+          "type": "boolean"
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "raw": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "mysql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "sqlsrv": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "pgsql": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgres": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "postgresql": {
+          "$ref": "#/$defs/sqlString"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "Spaltenänderung; PostgreSQL ändert nur ausdrücklich angegebene Eigenschaften."
     }
   }
 }

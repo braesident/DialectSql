@@ -22,6 +22,10 @@ final class SqlBuilder
       $type = 'raw';
     }
 
+    if ('pgsql' === $dialect && \in_array($type, ['create_table', 'drop_table', 'alter_table', 'create_view', 'drop_view', 'create_trigger', 'alter_trigger', 'drop_trigger'], true)) {
+      return PostgreSqlBuilder::build($normalized, $context);
+    }
+
     return match ($type) {
       'create_table' => self::buildCreateTable($normalized, $dialect),
       'drop_table'   => self::buildDropTable($normalized, $dialect),
@@ -58,14 +62,14 @@ final class SqlBuilder
       throw new InvalidArgumentException('SQL-Definition muss string, array oder object sein.');
     }
 
-    return $definition;
+    return self::arrayToArray($definition);
   }
 
   private static function hasDialectSql(array $definition): bool
   {
     $keys = array_map(static fn ($key) => mb_strtolower((string) $key), array_keys($definition));
 
-    return (bool) array_intersect($keys, ['mysql', 'mariadb', 'sqlsrv', 'sqlserver', 'mssql', 'sql', 'default']);
+    return (bool) array_intersect($keys, ['mysql', 'mariadb', 'sqlsrv', 'sqlserver', 'mssql', 'pgsql', 'postgres', 'postgresql', 'sql', 'default']);
   }
 
   private static function buildRaw(array $definition, string $dialect): string|array
@@ -77,7 +81,8 @@ final class SqlBuilder
 
     $dialectMap = [
       'mysql'  => ['mysql', 'mariadb'],
-      'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql']
+      'sqlsrv' => ['sqlsrv', 'sqlserver', 'mssql'],
+      'pgsql'  => ['pgsql', 'postgres', 'postgresql']
     ];
 
     if (isset($dialectMap[$dialect])) {
@@ -101,23 +106,16 @@ final class SqlBuilder
 
   private static function objectToArray(object $value): array
   {
-    if ($value instanceof stdClass) {
-      return (array) $value;
-    }
-
-    $result = [];
-    foreach (get_object_vars($value) as $key => $val) {
-      $result[$key] = \is_object($val) ? self::objectToArray($val) : (\is_array($val) ? self::arrayToArray($val) : $val);
-    }
-
-    return $result;
+    return self::arrayToArray(get_object_vars($value));
   }
 
   private static function arrayToArray(array $value): array
   {
     $result = [];
     foreach ($value as $key => $val) {
-      if (\is_object($val)) {
+      if ($val instanceof SelectBuilder) {
+        $result[$key] = $val;
+      } elseif (\is_object($val)) {
         $result[$key] = self::objectToArray($val);
       } elseif (\is_array($val)) {
         $result[$key] = self::arrayToArray($val);
@@ -1340,6 +1338,9 @@ final class SqlBuilder
     }
 
     $tableRef = 'sqlsrv' === $dialect ? '['.$schema.'].['.$table.']' : '`'.$table.'`';
+    if ('pgsql' === $dialect) {
+      $tableRef = self::postgreSqlTable($table, $definition);
+    }
 
     if (null !== $values) {
       if ( ! \is_array($values)) {
@@ -1448,6 +1449,10 @@ final class SqlBuilder
       return 'NULL';
     }
     if (\is_bool($value)) {
+      if ('pgsql' === $dialect) {
+        return $value ? 'TRUE' : 'FALSE';
+      }
+
       return $value ? '1' : '0';
     }
     if (\is_int($value) || \is_float($value)) {
@@ -1541,6 +1546,14 @@ final class SqlBuilder
     $setParts = [];
     foreach ($assignments as $assignment) {
       [$col, $val] = $assignment;
+      if ('pgsql' === $dialect && str_contains($col, '.')) {
+        $parts = explode('.', $col);
+        $column = array_pop($parts);
+        if (implode('.', $parts) !== ($alias ?? $table)) {
+          throw new InvalidArgumentException('PostgreSQL update unterstützt nur Spalten der Zieltabelle.');
+        }
+        $col = $column;
+      }
       if ('sqlsrv' === $dialect && false !== strpos($col, '.')) {
         $qualifier = trim((string) explode('.', $col, 2)[0]);
         $target    = $alias ?? $table;
@@ -1579,6 +1592,10 @@ final class SqlBuilder
 
     $tableRef = 'sqlsrv' === $dialect ? '['.$schema.'].['.$table.']' : self::quoteIdentifierPath($table, $dialect);
     $aliasSql = $alias ? self::quoteColumn($alias, $dialect) : null;
+
+    if ('pgsql' === $dialect) {
+      return self::buildPostgreSqlMutation($definition, $context, $joins, $whereSql, $setParts);
+    }
 
     if ('sqlsrv' === $dialect) {
       $sql = 'UPDATE';
@@ -1666,6 +1683,10 @@ final class SqlBuilder
     $tableRef = 'sqlsrv' === $dialect ? '['.$schema.'].['.$table.']' : self::quoteIdentifierPath($table, $dialect);
     $aliasSql = $alias ? self::quoteColumn($alias, $dialect) : null;
 
+    if ('pgsql' === $dialect) {
+      return self::buildPostgreSqlMutation($definition, $context, $joins, $whereSql);
+    }
+
     if ('sqlsrv' === $dialect) {
       $sql = 'DELETE';
       if (null !== $limit) {
@@ -1704,6 +1725,77 @@ final class SqlBuilder
     }
     if (null !== $limit) {
       $sql .= ' LIMIT '.$limit;
+    }
+
+    return $sql;
+  }
+
+  private static function postgreSqlTable(string $table, array $definition): string
+  {
+    $schema = $definition['schema'] ?? null;
+    if (\is_string($schema) && '' !== $schema && ! str_contains($table, '.')) {
+      $table = $schema.'.'.$table;
+    }
+
+    return self::quoteIdentifierPath($table, 'pgsql');
+  }
+
+  private static function buildPostgreSqlMutation(array $definition, array $context, array $joins, ?string $where, ?array $set = null): string
+  {
+    foreach (['limit', 'offset', 'order_by', 'orderBy'] as $key) {
+      if (isset($definition[$key])) {
+        throw new InvalidArgumentException('PostgreSQL UPDATE/DELETE unterstützt kein '.$key.'; nutze eine explizite Schlüssel-Unterabfrage oder raw.');
+      }
+    }
+    $table = (string) $definition['table'];
+    $alias = $definition['as'] ?? $definition['alias'] ?? null;
+    $alias = \is_string($alias) && '' !== trim($alias) ? trim($alias) : null;
+    $target = $alias ?? $table;
+    $sql = (null !== $set ? 'UPDATE ' : 'DELETE FROM ').self::postgreSqlTable($table, $definition);
+    if (null !== $alias) {
+      $sql .= ' AS '.self::quoteColumn($alias, 'pgsql');
+    }
+    if (null !== $set) {
+      $sql .= ' SET '.implode(', ', $set);
+    }
+
+    $sources = [];
+    $conditions = [];
+    foreach ($joins as $join) {
+      if ('INNER' !== $join['type']) {
+        throw new InvalidArgumentException('PostgreSQL UPDATE/DELETE übersetzt nur INNER JOIN; für Outer-Joins nutze eine Unterabfrage oder raw.');
+      }
+      $joinAlias = $join['as'] ?? null;
+      if (isset($join['query'])) {
+        if ( ! $joinAlias) {
+          throw new InvalidArgumentException('PostgreSQL DML-Unterabfragen benötigen einen Alias.');
+        }
+        $source = '('.SelectBuilder::build($join['query'], $context).')';
+      } else {
+        $source = self::postgreSqlTable((string) $join['table'], $join);
+      }
+      if ($joinAlias) {
+        $source .= ' AS '.self::quoteColumn($joinAlias, 'pgsql');
+      }
+      $sources[] = $source;
+      if (null !== ($join['on'] ?? null)) {
+        $conditions[] = SelectBuilder::condition($join['on'], $context);
+      } elseif (null !== ($join['using'] ?? null)) {
+        $columns = \is_array($join['using']) ? $join['using'] : [$join['using']];
+        foreach ($columns as $column) {
+          $conditions[] = self::quoteIdentifierPath($target.'.'.$column, 'pgsql').' = '
+            .self::quoteIdentifierPath(($joinAlias ?? $join['table']).'.'.$column, 'pgsql');
+        }
+      }
+    }
+    if ([] !== $sources) {
+      $sql .= (null !== $set ? ' FROM ' : ' USING ').implode(', ', $sources);
+    }
+    if (null !== $where && '' !== $where) {
+      $conditions[] = $where;
+    }
+    if ([] !== $conditions) {
+      $sql .= ' WHERE '.implode(' AND ', array_map(static fn ($condition) => '('.$condition.')', $conditions));
     }
 
     return $sql;
@@ -2320,6 +2412,10 @@ final class SqlBuilder
 
   private static function quoteColumn(string $name, string $dialect): string
   {
+    if ('pgsql' === $dialect) {
+      return '"'.str_replace('"', '""', $name).'"';
+    }
+
     return 'sqlsrv' === $dialect ? '['.$name.']' : '`'.$name.'`';
   }
 
@@ -2386,12 +2482,19 @@ final class SqlBuilder
       if ( ! \is_string($dialectValue) || '' === $dialectValue) {
         throw new InvalidArgumentException('SQL-Dialekt fehlt.');
       }
-      $context['dialect'] = mb_strtolower($dialectValue);
+      $context['dialect'] = self::normalizeDialectName($dialectValue);
 
       return $context;
     }
 
-    return ['dialect' => mb_strtolower((string) $dialect)];
+    return ['dialect' => self::normalizeDialectName($dialect)];
+  }
+
+  private static function normalizeDialectName(string $dialect): string
+  {
+    $dialect = mb_strtolower(trim($dialect));
+
+    return \in_array($dialect, ['pgsql', 'postgres', 'postgresql'], true) ? 'pgsql' : $dialect;
   }
 
   private static function isMySqlCheckSupported(array $context): bool

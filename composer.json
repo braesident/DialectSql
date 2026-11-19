@@ -1,6 +1,6 @@
 {
   "name": "braesident/dialectsql",
-  "description": "SQL-Builder für MySQL, MariaDB und Microsoft SQL Server.",
+  "description": "SQL-Builder für MySQL, MariaDB, Microsoft SQL Server und PostgreSQL.",
   "type": "library",
   "license": "MIT",
   "homepage": "https://exunova.de",
