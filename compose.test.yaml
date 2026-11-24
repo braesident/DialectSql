@@ -1,0 +1,40 @@
+name: dialectsql-tests
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: DialectSql_test_123!
+      MYSQL_DATABASE: dialectsql_test
+    ports:
+      - "127.0.0.1:13306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  pgsql:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: dialectsql_test
+      POSTGRES_USER: dialectsql
+      POSTGRES_PASSWORD: DialectSql_test_123!
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dialectsql -d dialectsql_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  sqlsrv:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: DialectSql_test_123!
+    ports:
+      - "127.0.0.1:11433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30

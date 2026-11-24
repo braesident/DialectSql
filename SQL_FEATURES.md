@@ -1,6 +1,6 @@
 # SQL-Funktionsmatrix und Projektliste
 
-Stand: 19.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des neu eingeführten PostgreSQL-Dialekts. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
+Stand: 20.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des PostgreSQL-Dialekts, der Eingabeprüfung und der neuen SELECT-/DML-Funktionen. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
 
 Die Liste deckt die üblichen Abfragen, Datenänderungen, Schemaänderungen, Datentypen, Transaktionen sowie größere Verwaltungsbereiche ab. Sie ist kein vollständiger Katalog sämtlicher Herstellerfunktionen, Serveroptionen, Erweiterungen oder versionsabhängiger Schlüsselwörter. Seltene Verwaltungsbefehle sind teilweise als Befehlsfamilie zusammengefasst.
 
@@ -38,7 +38,7 @@ Syntaxgrundlagen: [MySQL SELECT](https://dev.mysql.com/doc/refman/8.4/en/select.
 | INNER JOIN / JOIN ON | Ja | Ja | Ja | `{"join":[{"table":"stock","as":"s","on":["p.id","=","s.product_id"]}]}`. |
 | LEFT [OUTER] JOIN | Ja | Ja | Ja | `left_join` / `leftJoin`; fluent: `leftJoin()`. |
 | RIGHT [OUTER] JOIN | Ja | Ja | Ja | `right_join` / `rightJoin`; fluent: `rightJoin()`. |
-| JOIN USING | Ja | — | Ja | Join-Objekt `{"table":"stock","using":["id"]}`. SQL Server benötigt `ON`; SELECT-Builder verhindert dort ungültiges USING bisher nicht. |
+| JOIN USING | Ja | — | Ja | Join-Objekt `{"table":"stock","using":["id"]}`. SQL Server benötigt `ON`; USING wird ausdrücklich abgelehnt. |
 | CROSS JOIN | Offen | Offen | Offen | Keine eigene strukturierte Join-Art. |
 | FULL [OUTER] JOIN | — | Offen | Offen | MySQL benötigt eine bewusste Emulation; keine allgemeine Übersetzung vorhanden. |
 | NATURAL JOIN | Offen | — | Offen | Spaltenabhängige Semantik; explizites ON ist die gemeinsame Alternative. |
@@ -50,17 +50,17 @@ Syntaxgrundlagen: [MySQL SELECT](https://dev.mysql.com/doc/refman/8.4/en/select.
 | ORDER BY / ASC / DESC | Ja | Ja | Ja | `{"order_by":[{"expr":"id","dir":"DESC"}]}` / `orderBy('id', 'DESC')`. |
 | NULLS FIRST / NULLS LAST | — | — | Teil | In PostgreSQL als `dir:"ASC NULLS LAST"` oder String möglich; keine portable NULL-Sortierung. |
 | LIMIT / TOP / FETCH | Ja | Ja | Ja | Gemeinsames Feld `limit`; unterschiedliche Ausgabe, siehe Abschnitt 2. |
-| OFFSET | Teil | Ja | Ja | Gemeinsames Feld `offset`; MySQL-Sonderfall ohne Limit siehe Abschnitt 2. |
+| OFFSET | Ja | Ja | Ja | Gemeinsames Feld `offset`; MySQL ohne Limit verwendet einen unbegrenzten Ersatzwert als SQL-String. |
 | FETCH FIRST / NEXT als Eingabefeld | — | Offen | Offen | Es gibt kein Feld `fetch`; SQL Server erzeugt FETCH aus `limit`. PostgreSQL erzeugt LIMIT. |
 | TOP PERCENT / WITH TIES | — | Offen | — | Kein `percent`-/`with_ties`-Feld; nicht auf ein festes Limit reduzierbar. |
 | FETCH ... WITH TIES | — | — | Offen | PostgreSQL benötigt ORDER BY; keine API dafür. |
 | UNION | Ja | Ja | Ja | `{"union":[{"select":"id","from":"archive"}]}` / `union()`; Teilabfragen werden geklammert. |
 | UNION ALL | Ja | Ja | Ja | `union_all` / `unionAll`; fluent: `union($query, true)`. |
-| ORDER BY / LIMIT über gesamtes UNION | Offen | Offen | Offen | Root-`order_by`/`limit` gilt derzeit für die erste Teilabfrage; globale Sortierung/Begrenzung ausdrücklich mit äußerer Query oder raw modellieren. |
+| ORDER BY / LIMIT über gesamtes UNION | Ja | Ja | Ja | `union_order_by`, `union_limit`, `union_offset` bzw. camelCase; äußere SELECT-Abfrage. Bestehendes `order_by`/`limit` betrifft weiterhin nur die erste Teilabfrage. |
 | INTERSECT / INTERSECT ALL | Offen | Offen / — | Offen | Kein Set-Operator-Feld; MySQL ab 8.0.31, SQL Server ohne ALL. |
 | EXCEPT / EXCEPT ALL | Offen | Offen / — | Offen | Kein Set-Operator-Feld; MySQL ab 8.0.31, SQL Server ohne ALL. |
-| WITH / CTE | Offen | Offen | Offen | Gemeinsame API grundsätzlich möglich; aktuell Raw-SQL. |
-| WITH RECURSIVE / rekursive CTE | Offen | Offen | Offen | SQL Server verwendet kein RECURSIVE-Schlüsselwort; Rekursionsregeln unterscheiden sich. |
+| WITH / CTE | Ja | Ja | Ja | SELECT-CTEs: `with:[{"name":"recent","columns":["id"],"query":{"select":"id","from":"products"}}]`; fluent `with()`. MySQL ab 8, MariaDB ab 10.2.2 bei bekanntem Versionskontext. |
+| WITH RECURSIVE / rekursive CTE | Teil | Teil | Teil | Zusätzlich `recursive:true`; SQL Server erhält WITH ohne RECURSIVE. Serverregeln und Rekursionsgrenzen bleiben unterschiedlich; kein SEARCH-/CYCLE-AST. |
 | WINDOW / OVER / PARTITION BY | Offen | Offen | Offen | SQL-Fenster benötigen Raw-Ausdrücke; `fn` allein erzeugt kein OVER. |
 | ROW_NUMBER / RANK / DENSE_RANK | Teil | Teil | Teil | Funktionsname durch `fn` ausgebbar, vollständige Fensterklausel nur raw; daher keine fertige Fensterunterstützung. |
 | GROUPING SETS / CUBE | — | Offen | Offen | Keine strukturierte Gruppierung dieser Art. |
@@ -98,14 +98,14 @@ SelectBuilder::build($query, 'pgsql');
 
 | Fall | MySQL-Ausgabe | SQL-Server-Ausgabe | PostgreSQL-Ausgabe | Bewertung |
 | --- | --- | --- | --- | --- |
-| SELECT, `limit:10` | `LIMIT 10` | `OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY` | `LIMIT 10` | Gemeinsame API vorhanden; SELECT verwendet bei SQL Server derzeit kein TOP. |
+| SELECT, `limit:10` | `LIMIT 10` | `OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY` | `LIMIT 10` | Gemeinsame API vorhanden; TOP wird bei SELECT nur für limit=0 verwendet. |
 | SELECT, zusätzlich `offset:20` | `LIMIT 20, 10` | `OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY` | `LIMIT 10 OFFSET 20` | Gemeinsame API vorhanden. |
-| SELECT, nur `offset:20` | Ersatz-LIMIT vorgesehen | `OFFSET 20 ROWS` | `OFFSET 20` | MySQL-Implementierung verwendet eine Zahl oberhalb von PHP_INT_MAX; auf 64-Bit-PHP wird daraus derzeit `LIMIT 20, 0`. Offener Fehler. |
+| SELECT, nur `offset:20` | `LIMIT 20, 18446744073709551615` | `OFFSET 20 ROWS` | `OFFSET 20` | MySQL-Ersatzwert wird ohne PHP-Integerüberlauf als SQL-String erzeugt. |
 | SELECT ohne ORDER BY | Kein ORDER BY ergänzt | `ORDER BY (SELECT 1)` ergänzt | Kein ORDER BY ergänzt | Keine garantierte Reihenfolge; für verlässliche Seiten eine eindeutige Sortierung angeben. |
-| SELECT, `limit:0` | `LIMIT 0` | `FETCH NEXT 0 ROWS ONLY` | `LIMIT 0` | SQL Server akzeptiert FETCH 0 nicht; offener Fehler. |
+| SELECT, `limit:0` | `LIMIT 0` | `SELECT [DISTINCT] TOP (0) ...` | `LIMIT 0` | SQL Server erhält kein FETCH 0; gilt auch bei Aggregaten, OFFSET und globalem UNION-Limit. |
 | UPDATE, `limit:10` | `UPDATE ... LIMIT 10` | `UPDATE TOP (10) ...` | Fehler | PostgreSQL hat keine direkte UPDATE-LIMIT-Klausel. |
 | DELETE, `limit:10` | `DELETE ... LIMIT 10` | `DELETE TOP (10) ...` | Fehler | PostgreSQL hat keine direkte DELETE-LIMIT-Klausel. |
-| UPDATE/DELETE mit Join und Limit | Derzeit SQL-Erzeugung, aber MySQL-Syntax unzulässig | TOP vorhanden | Fehler | MySQL erlaubt LIMIT nicht in der Mehrtabellensyntax; bestehende Projektlücke. |
+| UPDATE/DELETE mit Join und Limit | Fehler | TOP vorhanden | Fehler | MySQL-Mehrtabellensyntax mit LIMIT wird abgelehnt; dies gilt auch für Alias-DELETE mit LIMIT in der bisherigen Mehrtabellensyntax. |
 
 Für PostgreSQL lässt sich die Absicht begrenzter Datenänderungen mit einer ausdrücklichen Auswahl stabiler Schlüssel darstellen. Das ist eine bewusste Query-Struktur und keine automatische LIMIT-Emulation:
 
@@ -127,17 +127,17 @@ Für parallele Verarbeitung sind Schlüsselwahl, Sperren und Transaktionsgrenzen
 
 ## 3. Bedingungen, Operatoren und Ausdrücke
 
-Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausdrücke. Textwerte deshalb ausdrücklich mit `{"value":"Text"}` angeben. In INSERT-Werten, UPDATE-SET und der DML-WHERE-Kurzform sind Strings dagegen Literale. PostgreSQL-Spalten mit Großschreibung über `{"col":"p.ProductId"}` referenzieren; einfache Stringausdrücke werden unverändert ausgegeben.
+Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausdrücke. Textwerte deshalb ausdrücklich mit `{"value":"Text"}` angeben. In INSERT-Werten, UPDATE-SET und der DML-WHERE-Kurzform sind Strings dagegen Literale. `{"col":"p.ProductId"}` quotet Spaltenreferenzen in allen Dialekten; einfache Stringausdrücke werden unverändert ausgegeben. SQL Server erhält N-Literale für Unicode. Backslashes werden in MySQL über einen UTF-8-Hex-Ausdruck und in PostgreSQL über E-Literale erhalten.
 
 | Funktion / Operator | MySQL | SQL Server | PostgreSQL | Anwendung / Grenze |
 | --- | --- | --- | --- | --- |
 | =, <>, !=, <, <=, >, >= | Ja | Ja | Ja | `{"where":["id",">=",10]}`; `op`, `left`, `right` ebenfalls möglich. |
 | AND / OR / NOT | Ja | Ja | Ja | `{"where":{"and":[["id",">",0],{"not":{"is_null":"name"}}]}}`. |
 | Klammergruppen | Ja | Ja | Ja | Verschachtelte `and`-/`or`-Objekte; `WhereBuilder::andGroup()` / `orGroup()`. |
-| IN / NOT IN, Werteliste | Teil | Teil | Teil | `["id","IN",[1,2]]`; Strings in der IN-Liste werden Literale. Leere Listen erzeugen bisher ungültiges `IN ()`; `WhereBuilder` behandelt leere Listen gesondert. |
+| IN / NOT IN, Werteliste | Ja | Ja | Ja | `["id","IN",[1,2]]`; Strings werden Literale. Leeres IN ergibt `1=0`, leeres NOT IN `1=1`; WhereBuilder erhält leere Filter statt sie zu entfernen. |
 | IN / NOT IN, Unterabfrage | Ja | Ja | Ja | `["id","IN",{"query":{"select":"id","from":"archive"}}]`. |
 | EXISTS / NOT EXISTS | Ja | Ja | Ja | `{"exists":{"select":{"value":1},"from":"stock"}}` / `not_exists`. |
-| IS NULL / IS NOT NULL | Ja | Ja | Ja | `{"is_null":"deleted_at"}` / `is_not_null`; kein automatisches Umschreiben von `= NULL` in Vergleichstripeln. |
+| IS NULL / IS NOT NULL | Ja | Ja | Ja | `{"is_null":"deleted_at"}` / `is_not_null`; Vergleiche `= null`, `!= null`, `<> null` oder mit `value:null` werden ebenfalls umgeschrieben. |
 | BETWEEN / NOT BETWEEN | Ja | Ja | Ja | `{"between":{"expr":"price","min":10,"max":20,"not":true}}`. |
 | LIKE / NOT LIKE | Teil | Teil | Teil | Vergleichstripel mit `LIKE` und Literal; keine gemeinsame ESCAPE-/Kollationssteuerung. |
 | ILIKE | — | — | Teil | `["name","ILIKE",{"value":"a%"}]`; generischer Operator, keine Übersetzung für andere Dialekte. |
@@ -153,7 +153,7 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | Skalare Unterabfrage | Ja | Ja | Ja | `{"query":{"select":{"fn":"max","args":["id"]},"from":"products"}}`. |
 | Zeilen-/Tupelvergleiche | Offen | Teil | Offen | Keine Tupel-AST; SQL Server hat nur Teilentsprechungen. |
 | Boolesche Literale | Ja | Ja | Ja | PHP/JSON `true`/`false`: MySQL/SQL Server `1`/`0`, PostgreSQL `TRUE`/`FALSE`. |
-| PDO-Platzhalter | Ja | Ja | Ja | `{"raw":":id"}`; Werte separat an PDO binden. |
+| PDO-Platzhalter | Ja | Ja | Ja | `{"param":"id"}` / `SelectBuilder::param('id')`; Parameternamen werden geprüft. Bestehendes `{"raw":":id"}` bleibt möglich; Werte separat binden. |
 | WhereBuilder + Parameterlisten | Ja | Ja | Ja | `andEqualsParam()`, `andIn()`, `orIn()`, `conditions()`, `params()`; erzeugt keine eigene Verbindung. |
 
 Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder Funktionsname auf dem Zielserver existiert. Syntaxübernahme ist daher nur **Teil**-Unterstützung und keine Dialektübersetzung.
@@ -173,9 +173,9 @@ Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder
 | ON CONFLICT DO NOTHING / UPDATE | — | — | Offen | PostgreSQL-Konfliktziel und Unique-Regeln erfordern ausdrückliche Definition. |
 | MERGE | — | Offen | Offen | Keine gemeinsame Upsert-/MERGE-API; nicht gleichbedeutend mit MySQL REPLACE. |
 | REPLACE INTO | Offen | — | — | Kann Löschen und Einfügen auslösen; keine allgemeine UPDATE-Entsprechung. |
-| RETURNING | — | — | Offen | Noch keine Rückgabestruktur für PostgreSQL-DML; MariaDB hat eigene Teilunterstützung außerhalb der MySQL-Zusage. |
-| OUTPUT inserted/deleted | — | Offen | — | Noch keine gemeinsame Rückgabe-API mit RETURNING. |
-| INSERT/UPDATE/DELETE mit CTE | Offen | Offen | Offen | Keine strukturierte WITH-Unterstützung. |
+| RETURNING | — | — | Teil | Gemeinsames `returning:["id",{"col":"name","as":"label"}]` oder `"*"`; Zielspalten, keine beliebigen Rückgabeausdrücke. MySQL lehnt ab. |
+| OUTPUT inserted/deleted | — | Teil | — | Dasselbe `returning`-Feld: INSERT/UPDATE nutzt INSERTED, DELETE DELETED. Kein OUTPUT INTO; Servergrenzen bei Triggern beachten. |
+| INSERT/UPDATE/DELETE mit CTE | Teil | Offen | Teil | SELECT-CTE als INSERT-Quelle bei MySQL/PostgreSQL möglich. Eigenes WITH vor DML ist noch offen; SQL Server INSERT SELECT mit WITH wird abgelehnt. |
 | UPDATE ... SET | Ja | Ja | Ja | `{"type":"update","table":"products","set":{"name":"neu"},"where":["id","=",1]}`. |
 | SET aus Spalte / Ausdruck / Unterabfrage | Ja | Ja | Ja | `set:{"price":{"op":"+","left":"price","right":1}}`; Spalten ausdrücklich mit `col`. |
 | INNER-JOIN-UPDATE | Ja | Ja | Ja | `join` + `set`: MySQL UPDATE JOIN, SQL Server UPDATE FROM JOIN, PostgreSQL UPDATE FROM mit Join-Bedingung im WHERE. |
@@ -187,7 +187,7 @@ Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder
 | DELETE mehrerer Zieltabellen | Offen | — | — | Es gibt nur ein `table`-Ziel in der API. |
 | DML-Zielalias | Ja | Ja | Ja | `as:"p"`; bei PostgreSQL nur Zielspalten in SET, Qualifizierung des Zielalias wird entfernt. |
 | DML-WHERE als Objekt | Ja | Ja | Ja | `where:{"id":1,"deleted_at":null}` wird zu Vergleichen und IS NULL. Für SELECT explizite Bedingungen verwenden. |
-| DML LIMIT / TOP | Teil | Ja | — | Siehe Abschnitt 2; PostgreSQL wirft bei `limit` einen Fehler. |
+| DML LIMIT / TOP | Teil | Ja | — | MySQL nur ohne Joins, bei DELETE auch ohne Alias-Mehrtabellensyntax. PostgreSQL wirft bei `limit` einen Fehler. |
 | DML ORDER BY / OFFSET | Offen / — | — | — | Keine strukturierte DML-Sortierung. PostgreSQL lehnt solche Felder ausdrücklich ab. |
 | WHERE CURRENT OF | Offen | Offen | Offen | Cursorverwaltung und positionierte Änderungen benötigen Raw-SQL. |
 | TRUNCATE TABLE | Offen | Offen | Offen | Kein `type:"truncate"`; Identitäts-, FK- und Transaktionsverhalten unterscheiden sich. |
@@ -239,17 +239,17 @@ DDL-Grundlagen: [MySQL DDL](https://dev.mysql.com/doc/refman/8.4/en/sql-data-def
 | ADD / DROP CHECK | Teil | Ja | Ja | Actions `add_check` (`check` oder `expression`) / `drop_check` (`name`); bei älterem MySQL kann DROP anhand der Kontextversion entfallen, CHECK-Erzwingung bleibt versionsabhängig. |
 | VALIDATE CONSTRAINT / WITH CHECK / NOCHECK | — | Offen | Offen | Unterschiedliche Vertrauens-/Validierungszustände; raw. |
 | NULL / NOT NULL | Ja | Ja | Ja | Spaltenfeld `nullable`; bei CREATE Standard true, Identity in PostgreSQL implizit NOT NULL. |
-| DEFAULT-Konstanten | Teil | Teil | Ja | Spaltenfeld `default`; MySQL/SQL Server haben bei Bool-Defaults bisher Zeichenketten statt sauberer Bool-Abbildung. PostgreSQL rendert typgerecht. |
+| DEFAULT-Konstanten | Ja | Ja | Ja | Spaltenfeld `default`; Bool-Werte werden zu 1/0 beziehungsweise TRUE/FALSE. SQL Server verwendet Unicode-Textliterale. |
 | DEFAULT aktueller Zeitstempel | Ja | Ja | Ja | `default:"CURRENT_TIMESTAMP"` oder `"NOW"`; SQL Server SYSDATETIME(). |
 | Beliebige DEFAULT-Ausdrücke | Offen | Offen | Offen | Kein Ausdrucksobjekt für Defaults im Schema; bei komplexen Ausdrücken bewusst Raw-DDL verwenden. |
 | DEFAULT ändern | Teil | — | Ja | Über `modify_column`; MySQL vollständige Spaltendefinition. SQL Server braucht eigene Constraint-Behandlung. |
 | DROP DEFAULT | Ja | Ja | Ja | Action `drop_default`: MySQL `columns` oder `name` als Spaltenname, SQL Server `name` als Constraintname oder `columns` zum Lookup; PostgreSQL nur `columns`. |
 | AUTO_INCREMENT / IDENTITY | Ja | Ja | Ja | `autoIncrement:true` oder `identity:true`; PostgreSQL `GENERATED BY DEFAULT AS IDENTITY` auf Ganzzahltypen. |
 | Identity-Modus ALWAYS / Seed / Increment / Restart | Offen | Offen | Offen | Keine gemeinsame Konfiguration; bei PostgreSQL identity in modify_column ausdrücklich abgelehnt. |
-| UNSIGNED | Ja | — | — | `unsigned:true`; PostgreSQL lehnt ab. SQL Server ignoriert das Flag bisher ohne Bereichsersatz. |
+| UNSIGNED | Ja | — | — | `unsigned:true`; PostgreSQL und SQL Server lehnen das Flag ausdrücklich ab. |
 | ENUM-Wertebereich | Ja | Ja | Ja | `enum:["neu","aktiv"]`; MySQL ENUM, SQL Server NVARCHAR+CHECK, PostgreSQL VARCHAR+CHECK. Kein PostgreSQL CREATE TYPE. |
 | Enum ändern | Teil | Teil | Offen | MySQL vollständige Spalte; SQL Server Constraint-Verwaltung begrenzt. PostgreSQL modify_column mit enum wird abgelehnt. |
-| ON UPDATE CURRENT_TIMESTAMP | Ja | — | — | Spaltenfeld `onUpdate`; PostgreSQL benötigt expliziten Trigger und lehnt das Feld ab. SQL Server ignoriert es bisher bei CREATE. |
+| ON UPDATE CURRENT_TIMESTAMP | Ja | — | — | Spaltenfeld `onUpdate`; PostgreSQL und SQL Server benötigen explizite Logik und lehnen das Feld ab. |
 | Spaltenkommentar | Ja | Ja | Ja | `comment:"Beschreibung"` bei CREATE; MySQL inline, SQL Server Extended Property, PostgreSQL COMMENT ON. |
 | Kommentar bei ALTER ändern | Teil | Offen | Ja | PostgreSQL add/modify erzeugt COMMENT ON; MySQL modify inline, SQL-Server-ALTER aktuell ohne Kommentarweitergabe. |
 | Tabellen-/Index-/Constraint-Kommentare | Offen | Offen | Offen | Keine gemeinsame Kommentar-API für diese Objekte. |
@@ -325,7 +325,7 @@ Diese Tabelle bezieht sich auf Spaltendefinitionen in CREATE/ALTER. Typnamen wer
 | `text` | TEXT, Ja | NVARCHAR(MAX), Ja | TEXT, Ja | Größenlimits unterscheiden sich. |
 | `mediumtext` / `longtext` | MEDIUMTEXT / LONGTEXT, Ja | NVARCHAR(MAX), Teil | TEXT, Teil | Keine identischen Maximalgrößen. |
 | `json` | JSON, Ja | NVARCHAR(MAX), Teil | JSON, Ja | SQL Server erzwingt hier keinen JSON-CHECK; PostgreSQL JSON ist nicht JSONB. |
-| `jsonb` | Offen | Offen | JSONB, Ja | In anderen Dialekten Typ explizit vorgeben; unbekannte Typen fallen dort bisher auf String zurück. |
+| `jsonb` | Offen | Offen | JSONB, Ja | In anderen Dialekten Typ explizit vorgeben; unbekannte Typnamen führen zu einem Fehler. |
 | `tinyblob` | TINYBLOB, Ja | VARBINARY(255), Ja | BYTEA, Teil | PostgreSQL erhält kein 255-Byte-Limit. |
 | `blob` / `mediumblob` / `longblob` | Native BLOB-Typen, Ja | VARBINARY(MAX), Teil | BYTEA, Teil | Unterschiedliche Größen- und Treiberbehandlung. |
 | `datetime` | DATETIME, Ja | DATETIME2, Ja | TIMESTAMP WITHOUT TIME ZONE, Ja | Zeitzonen- und Genauigkeitsregeln nicht automatisch angeglichen. |
@@ -336,9 +336,9 @@ Diese Tabelle bezieht sich auf Spaltendefinitionen in CREATE/ALTER. Typnamen wer
 | `timestamptz` | — | — | TIMESTAMP WITH TIME ZONE, Ja | Keine automatische Abbildung auf SQL Server DATETIMEOFFSET. |
 | `uuid` | Offen | Offen | UUID, Ja | MySQL CHAR/BINARY bzw. SQL Server UNIQUEIDENTIFIER nur explizit. |
 | `float` / `real` / `double` | Offen | Offen | REAL / REAL / DOUBLE PRECISION, Ja | Bestehender MySQL-/SQL-Server-Mapper kennt diese Namen nicht. |
-| `char` / `nvarchar` / `numeric` | Teil | Teil | CHAR / VARCHAR / NUMERIC, Ja | Andere Dialekte fallen teils auf den String-Standard zurück; genaue Typen dort überschreiben. |
+| `char` / `nvarchar` / `numeric` | Teil | Teil | CHAR / VARCHAR / NUMERIC, Ja | MySQL/SQL Server erkennen nvarchar als Stringalias und numeric als Decimalalias; char benötigt dort einen Typoverride. |
 | `enum:[...]` | ENUM, Ja | NVARCHAR + CHECK, Ja | VARCHAR + CHECK, Ja | Typname beliebig; keine identische Enum-Sortierung. |
-| `unsigned:true` | UNSIGNED, Ja | Flag ignoriert, Teil | Fehler | Keine gemeinsame Bereichegarantie. |
+| `unsigned:true` | UNSIGNED, Ja | Fehler | Fehler | Keine automatische Bereichemulation. |
 | `autoIncrement:true` | AUTO_INCREMENT, Ja | IDENTITY(1,1), Ja | GENERATED BY DEFAULT AS IDENTITY, Ja | PostgreSQL 10+, Ganzzahltyp; kein zusätzliches default oder nullable:true. |
 | Arrays / Range / Multirange / HSTORE / INET / XML / Spatial | Offen | Offen | Offen | Manche Typen nur in einzelnen Dialekten oder als Erweiterung; explizite Typvorgabe möglich. |
 
@@ -449,20 +449,20 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 
 ## 11. Bekannte Grenzen und nächste Projektaufgaben
 
-| Priorität | Aufgabe | Begründung / Ziel |
+| Status / Priorität | Aufgabe | Begründung / Ziel |
 | --- | --- | --- |
-| Hoch | Echte Datenbanktests für alle drei Dialekte ergänzen | Aktuelle Tests prüfen SQL-Erzeugung, keine Ausführung. PostgreSQL-PDO-Treiber ist für die Tests nicht erforderlich und war in der Entwicklungsumgebung nicht installiert. |
-| Hoch | MySQL OFFSET ohne LIMIT korrigieren | Der unbegrenzte Ersatzwert überläuft PHP-Integer; SQL muss die große Zahl als String verwenden. |
-| Hoch | SQL Server SELECT limit=0 behandeln | Aktuell ungültiges FETCH NEXT 0; leere Ergebnismenge korrekt darstellen. |
-| Hoch | MySQL DML-Joins mit LIMIT ablehnen oder gezielt modellieren | Builder erzeugt derzeit die verbotene Kombination. Gleiches gilt für Alias-DELETE in Mehrtabellensyntax mit LIMIT. |
-| Hoch | SELECT JOIN USING für SQL Server übersetzen oder ablehnen | Aktuell wird die nicht unterstützte Syntax ausgegeben. |
-| Mittel | Globale UNION-Sortierung und -Paginierung ergänzen | Root-order_by/limit betrifft bisher nur den ersten SELECT; die Absicht sollte ausdrücklich modelliert werden. |
-| Mittel | Gemeinsame Upsert-/Rückgabe-API entwerfen | Konfliktziele, MERGE, ON DUPLICATE KEY, ON CONFLICT, OUTPUT und RETURNING getrennt modellieren. |
-| Mittel | CTEs, weitere Set-Operatoren und Fensterfunktionen ergänzen | Häufige bisherige Raw-SQL-Fälle. |
+| Vorbereitet / Hoch | Echte Datenbanktests für alle drei Dialekte durchführen | Separate Integrationstests, Docker-Server und CI-Workflow sind vorhanden. Lokale Läufe ohne Test-DSNs werden ausdrücklich übersprungen; erfolgreiche Server-/CI-Läufe sind gesondert nachzuweisen. [Anleitung](tests/README.md). |
+| Erledigt | MySQL OFFSET ohne LIMIT | Ersatzwert wird als SQL-String erzeugt, ohne PHP-Integerüberlauf. |
+| Erledigt | SQL Server SELECT limit=0 | TOP (0) liefert eine leere Ergebnismenge ohne FETCH 0. |
+| Erledigt | MySQL DML-Joins mit LIMIT | Ungültige Kombination wird ebenso wie Alias-DELETE mit LIMIT ausdrücklich abgelehnt. |
+| Erledigt | SELECT JOIN USING für SQL Server | Wird mit Verweis auf ON abgelehnt. |
+| Erledigt | Globale UNION-Sortierung und -Paginierung | `union_order_by`, `union_limit`, `union_offset` bzw. fluente Methoden ergänzen die bisherigen Teilabfragefelder. |
+| Teilweise / Mittel | Gemeinsame Upsert-/Rückgabe-API | Zielspalten-Rückgaben über `returning` sind vorhanden. Upserts, Konfliktziele, MERGE sowie OUTPUT INTO und komplexere Rückgabeausdrücke bleiben offen. |
+| Teilweise / Mittel | CTEs, weitere Set-Operatoren und Fensterfunktionen | SELECT-CTEs einschließlich Rekursion sind vorhanden; eigene DML-CTEs, INTERSECT/EXCEPT und Fenster-AST bleiben offen. |
 | Mittel | PostgreSQL-Constraints/Indizes per Katalog suchen | Bisher verlangen die Drop-Actions bekannte Namen; bestehende MySQL-/SQL-Server-Lookups sind keine portable API-Implementierung. |
-| Mittel | Defaults, UNSIGNED, Enum und NULL-Semantik konsequent prüfen | Bestehende Mapper ignorieren teils Optionen oder ändern Typbereiche. PostgreSQL lehnt ausdrücklich nicht unterstützte neue Kombinationen ab. |
-| Mittel | Ausdrucksquoting und Objektverarbeitung vereinheitlichen | Strings bleiben an vielen Stellen raw; PostgreSQL-`col` schützt explizite Bezeichner. Verschachtelte Objekte sind nicht in jedem historischen SELECT-Sonderfall gleich behandelt. |
-| Mittel | JSON-Schema und Laufzeitparser weiter angleichen | Schema ist keine vollständige Dialekt-/Versionsprüfung. SELECT-Querydefinitionen erlauben unbekannte Felder, die der Builder ignorieren kann. |
+| Teilweise / Mittel | Defaults, UNSIGNED, Enum und NULL-Semantik | Bool-Defaults, NULL-Vergleiche und leere IN-Listen sind korrigiert. UNSIGNED/onUpdate ohne passende Dialektunterstützung werden abgelehnt; vollständige Bereichs-, Enum- und Kollationsgleichheit bleibt offen. |
+| Teilweise / Mittel | Ausdrucksquoting und Objektverarbeitung | `col` quotet für alle Dialekte; `param` prüft Platzhalter; Literale folgen gemeinsamen Regeln. Stringausdrücke und Raw-SQL bleiben ausdrücklich SQL. Weitere historische DDL-Sonderpfade gesondert prüfen. |
+| Teilweise / Mittel | JSON-Schema und Laufzeitparser | Unbekannte SELECT-/Builder-/Spaltenfelder werden abgelehnt und neue Felder sind im Schema erfasst. Das Schema ist weiterhin keine vollständige Dialekt-/Versions- oder SQL-Semantikprüfung. |
 | Niedrig | Verwaltung, Rechte, Wartung und Spezialtypen priorisieren | Nach tatsächlichem Bedarf; die Matrix macht den fehlenden strukturierten Umfang sichtbar. |
 
-Quellcode für den Projektstatus: [SqlBuilder](src/SqlBuilder.php), [SelectBuilder](src/SelectBuilder.php), [PostgreSqlBuilder](src/PostgreSqlBuilder.php), [SqlRenderer](src/SqlRenderer.php), [WhereBuilder](src/WhereBuilder.php), [JSON-Schema](src/definition.schema.json). Ausführbare Übersetzungs- und Fehlerbeispiele: [Tests](tests/postgresql.php). Bei neuen Fähigkeiten Status, Anwendungsbeispiel, Grenzen und Tests gemeinsam pflegen.
+Quellcode für den Projektstatus: [SqlBuilder](src/SqlBuilder.php), [SelectBuilder](src/SelectBuilder.php), [PostgreSqlBuilder](src/PostgreSqlBuilder.php), [SqlRenderer](src/SqlRenderer.php), [WhereBuilder](src/WhereBuilder.php), [JSON-Schema](src/definition.schema.json). Ausführbare Übersetzungs- und Fehlerbeispiele: [PostgreSQL-Tests](tests/postgresql.php), [Korrektheitstests](tests/correctness.php), [Integrationstests](tests/integration.php). Beispiele für CTEs, UNION und Rückgaben stehen in der [README](README.md). Bei neuen Fähigkeiten Status, Anwendungsbeispiel, Grenzen und Tests gemeinsam pflegen.

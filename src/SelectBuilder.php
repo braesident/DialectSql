@@ -23,6 +23,11 @@ final class SelectBuilder
   private ?int $limit = null;
   private ?int $offset = null;
   private array $unions = [];
+  private array $ctes = [];
+  private bool $recursive = false;
+  private array $unionOrderBy = [];
+  private ?int $unionLimit = null;
+  private ?int $unionOffset = null;
 
   /**
    * Creates a SelectBuilder for the given dialect.
@@ -126,6 +131,11 @@ final class SelectBuilder
   public static function val(mixed $value): array
   {
     return ['value' => $value];
+  }
+
+  public static function param(string $name): array
+  {
+    return ['param' => $name];
   }
 
   /**
@@ -293,8 +303,8 @@ final class SelectBuilder
    */
   public function limit(?int $limit, ?int $offset = null): self
   {
-    $this->limit  = $limit;
-    $this->offset = $offset;
+    $this->limit  = DefinitionValidator::count($limit, 'limit');
+    $this->offset = DefinitionValidator::count($offset, 'offset');
 
     return $this;
   }
@@ -312,11 +322,50 @@ final class SelectBuilder
     return $this;
   }
 
+  /** Adds a SELECT common table expression; recursive applies to the WITH clause. */
+  public function with(string $name, mixed $query, array $columns = [], bool $recursive = false): self
+  {
+    Dialect::identifier($name, $this->dialect);
+    if (isset($this->ctes[$name])) {
+      throw new InvalidArgumentException('Doppelter CTE-Name: '.$name);
+    }
+    foreach ($columns as $column) {
+      if ( ! \is_string($column)) {
+        throw new InvalidArgumentException('CTE columns benötigt Spaltennamen.');
+      }
+      Dialect::identifier($column, $this->dialect);
+    }
+    $this->ctes[$name] = ['query' => $query, 'columns' => $columns];
+    $this->recursive = $this->recursive || $recursive;
+
+    return $this;
+  }
+
+  /** Sorts the complete UNION result, independently of its first SELECT. */
+  public function unionOrderBy(mixed $expr, ?string $direction = null): self
+  {
+    $this->unionOrderBy[] = ['expr' => $expr, 'dir' => $direction];
+
+    return $this;
+  }
+
+  public function unionLimit(?int $limit, ?int $offset = null): self
+  {
+    $this->unionLimit = DefinitionValidator::count($limit, 'union_limit');
+    $this->unionOffset = DefinitionValidator::count($offset, 'union_offset');
+
+    return $this;
+  }
+
   /**
    * Returns the final SELECT statement.
    */
   public function statement(): string
   {
+    if ($this->recursive && [] === $this->ctes) {
+      throw new InvalidArgumentException('recursive benötigt mindestens einen WITH-Eintrag.');
+    }
+    $with = $this->renderWith();
     $select = $this->select;
     if ([] === $select) {
       $select = ['*'];
@@ -325,6 +374,9 @@ final class SelectBuilder
     $sql = 'SELECT ';
     if ($this->distinct) {
       $sql .= 'DISTINCT ';
+    }
+    if ('sqlsrv' === $this->dialect && 0 === $this->limit) {
+      $sql .= 'TOP (0) ';
     }
     $sql .= $this->renderSelectList($select);
 
@@ -352,12 +404,16 @@ final class SelectBuilder
       $sql .= ' ORDER BY '.$this->renderOrderBy($this->orderBy);
     }
 
-    if (null !== $this->limit || null !== $this->offset) {
+    if ((null !== $this->limit || null !== $this->offset) && ! ('sqlsrv' === $this->dialect && 0 === $this->limit)) {
       $sql .= ' '.$this->renderLimitOffset($this->limit, $this->offset);
     }
 
     if ([] === $this->unions) {
-      return $sql;
+      if ([] !== $this->unionOrderBy || null !== $this->unionLimit || null !== $this->unionOffset) {
+        throw new InvalidArgumentException('union_order_by/union_limit/union_offset benötigt UNION.');
+      }
+
+      return $with.$sql;
     }
 
     $statement = '('.$sql.')';
@@ -366,7 +422,40 @@ final class SelectBuilder
       $statement .= ' UNION'.($union['all'] ? ' ALL' : '').' ('.$unionSql.')';
     }
 
-    return $statement;
+    if ([] !== $this->unionOrderBy || null !== $this->unionLimit || null !== $this->unionOffset) {
+      $outer = new self($this->context);
+      $outer->select('*')->from('('.$statement.')', '__dialectsql_union');
+      $outer->orderBy = $this->unionOrderBy;
+      $outer->limit($this->unionLimit, $this->unionOffset);
+      $statement = $outer->statement();
+    }
+
+    return $with.$statement;
+  }
+
+  private function renderWith(): string
+  {
+    if ([] === $this->ctes) {
+      return '';
+    }
+    $version = (int) ($this->context['serverVersionId'] ?? 0);
+    if ('mysql' === $this->dialect && 0 !== $version) {
+      $minimum = 'mariadb' === ($this->context['serverProduct'] ?? '') ? 100202 : 80000;
+      if ($version < $minimum) {
+        throw new InvalidArgumentException('WITH wird von dieser MySQL-/MariaDB-Version nicht unterstützt.');
+      }
+    }
+    $parts = [];
+    foreach ($this->ctes as $name => $cte) {
+      $query = $this->renderUnionQuery($cte['query']);
+      if ('sqlsrv' === $this->dialect && preg_match('/^\s*;?\s*WITH\b/i', $query)) {
+        throw new InvalidArgumentException('SQL Server unterstützt kein verschachteltes WITH; definiere die CTE am Root.');
+      }
+      $columns = [] !== $cte['columns'] ? ' ('.implode(', ', array_map([$this, 'quoteIdentifier'], $cte['columns'])).')' : '';
+      $parts[] = $this->quoteIdentifier((string) $name).$columns.' AS ('.$query.')';
+    }
+
+    return 'WITH '.($this->recursive && 'sqlsrv' !== $this->dialect ? 'RECURSIVE ' : '').implode(', ', $parts).' ';
   }
 
   private static function buildSelectSql(mixed $select, string|array $dialect): string
@@ -432,6 +521,26 @@ final class SelectBuilder
     foreach ($query as $key => $value) {
       $normalized[self::normalizeKey($key)] = $value;
     }
+    DefinitionValidator::query($normalized);
+
+    $this->recursive = $normalized['recursive'] ?? false;
+    if (isset($normalized['with'])) {
+      $ctes = $normalized['with'];
+      if (\is_object($ctes)) {
+        $ctes = get_object_vars($ctes);
+      }
+      if ( ! \is_array($ctes) || [] === $ctes || ! self::isList($ctes)) {
+        throw new InvalidArgumentException('with benötigt eine nicht leere Liste benannter SELECT-CTEs.');
+      }
+      foreach ($ctes as $cte) {
+        $cte = \is_object($cte) ? get_object_vars($cte) : $cte;
+        if ( ! \is_array($cte) || ! isset($cte['name'], $cte['query']) || ! \is_string($cte['name'])) {
+          throw new InvalidArgumentException('WITH-Eintrag benötigt name und query.');
+        }
+        DefinitionValidator::keys($cte, ['name', 'query', 'columns'], 'WITH');
+        $this->with($cte['name'], $cte['query'], $cte['columns'] ?? []);
+      }
+    }
 
     if (isset($normalized['distinct'])) {
       $this->distinct((bool) $normalized['distinct']);
@@ -479,12 +588,12 @@ final class SelectBuilder
 
     if (array_key_exists('limit', $normalized)) {
       $limit = $normalized['limit'];
-      $this->limit = \is_numeric($limit) ? (int) $limit : null;
+      $this->limit = DefinitionValidator::count($limit, 'limit');
     }
 
     if (array_key_exists('offset', $normalized)) {
       $offset = $normalized['offset'];
-      $this->offset = \is_numeric($offset) ? (int) $offset : null;
+      $this->offset = DefinitionValidator::count($offset, 'offset');
     }
 
     if (isset($normalized['union'])) {
@@ -498,6 +607,11 @@ final class SelectBuilder
         $this->unions[] = $union;
       }
     }
+    if (isset($normalized['unionorderby'])) {
+      $this->unionOrderBy = $this->normalizeOrderList($normalized['unionorderby']);
+    }
+    $this->unionLimit = DefinitionValidator::count($normalized['unionlimit'] ?? null, 'union_limit');
+    $this->unionOffset = DefinitionValidator::count($normalized['unionoffset'] ?? null, 'union_offset');
   }
 
   private function normalizeSelectList(mixed $select): array
@@ -532,6 +646,7 @@ final class SelectBuilder
     }
 
     if (\is_array($from)) {
+      DefinitionValidator::keys($from, ['table', 'name', 'as', 'alias', 'schema', 'query'], 'FROM');
       $alias = $from['as'] ?? $from['alias'] ?? $as;
       $schema = $from['schema'] ?? null;
       if (\is_string($schema)) {
@@ -589,6 +704,10 @@ final class SelectBuilder
     }
 
     if (\is_array($join)) {
+      DefinitionValidator::keys($join, ['table', 'name', 'query', 'as', 'alias', 'on', 'using', 'schema'], 'JOIN');
+      if (isset($join['on'], $join['using'])) {
+        throw new InvalidArgumentException('JOIN darf nicht gleichzeitig ON und USING enthalten.');
+      }
       $table = $join['table'] ?? $join['name'] ?? null;
       $query = $join['query'] ?? null;
       $alias = $join['as'] ?? $join['alias'] ?? null;
@@ -796,7 +915,13 @@ final class SelectBuilder
     if (isset($join['on']) && null !== $join['on']) {
       $sql .= ' ON '.$this->renderConditionGroup($join['on'], 'AND');
     } elseif (isset($join['using']) && null !== $join['using']) {
+      if ('sqlsrv' === $this->dialect) {
+        throw new InvalidArgumentException('SQL Server unterstützt kein JOIN USING; nutze ON.');
+      }
       $cols = $this->normalizeList($join['using']);
+      if ([] === $cols) {
+        throw new InvalidArgumentException('JOIN USING benötigt mindestens eine Spalte.');
+      }
       $sql .= ' USING ('.implode(', ', array_map([$this, 'quoteIdentifier'], $cols)).')';
     }
 
@@ -821,7 +946,14 @@ final class SelectBuilder
       $dir  = $order['dir'] ?? null;
       $sql  = \is_string($expr) ? $expr : $this->renderExpr($expr);
       if (\is_string($dir) && '' !== $dir) {
-        $sql .= ' '.mb_strtoupper($dir);
+        $direction = mb_strtoupper(trim($dir));
+        $allowed = 'pgsql' === $this->dialect
+          ? ['ASC', 'DESC', 'ASC NULLS FIRST', 'ASC NULLS LAST', 'DESC NULLS FIRST', 'DESC NULLS LAST']
+          : ['ASC', 'DESC'];
+        if ( ! \in_array($direction, $allowed, true)) {
+          throw new InvalidArgumentException('Ungültige ORDER-BY-Richtung: '.$dir);
+        }
+        $sql .= ' '.$direction;
       }
       $parts[] = $sql;
     }
@@ -855,7 +987,7 @@ final class SelectBuilder
     }
 
     if (null === $limit && null !== $offset) {
-      $limit = 18446744073709551615;
+      return 'LIMIT '.(int) $offset.', 18446744073709551615';
     }
 
     if (null === $offset || 0 === $offset) {
@@ -868,14 +1000,17 @@ final class SelectBuilder
   private function renderUnionQuery(mixed $query): string
   {
     if ($query instanceof self) {
-      return $query->statement();
+      $sql = $query->statement();
+    } elseif (\is_string($query)) {
+      $sql = $query;
+    } else {
+      $sql = self::fromQuery($query, $this->context)->statement();
+    }
+    if ('sqlsrv' === $this->dialect && preg_match('/^\s*;?\s*WITH\b/i', $sql)) {
+      throw new InvalidArgumentException('SQL Server unterstützt kein verschachteltes WITH; definiere die CTE am Root.');
     }
 
-    if (\is_string($query)) {
-      return $query;
-    }
-
-    return self::fromQuery($query, $this->context)->statement();
+    return $sql;
   }
 
   private function renderConditionGroup(mixed $conditions, string $glue): string
@@ -989,7 +1124,7 @@ final class SelectBuilder
     }
 
     if (\is_int($expr) || \is_float($expr)) {
-      return (string) $expr;
+      return Dialect::literal($expr, $this->dialect);
     }
 
     if (\is_string($expr)) {
@@ -1019,16 +1154,29 @@ final class SelectBuilder
         }
       }
 
-      if (isset($expr['raw'])) {
-        return trim((string) $expr['raw']);
-      }
-
-      if (isset($expr['col'])) {
-        if ('pgsql' === $this->dialect && \is_string($expr['col'])) {
-          return $this->quoteIdentifierPath($expr['col']);
+      if (\array_key_exists('param', $expr)) {
+        $name = $expr['param'];
+        if ( ! \is_string($name) || ! preg_match('/^:?[a-zA-Z_][a-zA-Z0-9_]*$/D', $name)) {
+          throw new InvalidArgumentException('param benötigt einen gültigen PDO-Parameternamen.');
         }
 
-        return \is_string($expr['col']) ? $expr['col'] : $this->renderExpr($expr['col']);
+        return ':'.ltrim($name, ':');
+      }
+
+      if (\array_key_exists('raw', $expr)) {
+        if ( ! \is_string($expr['raw']) || '' === trim($expr['raw'])) {
+          throw new InvalidArgumentException('raw benötigt einen nicht leeren SQL-String.');
+        }
+
+        return trim($expr['raw']);
+      }
+
+      if (\array_key_exists('col', $expr)) {
+        if (\is_string($expr['col'])) {
+          return Dialect::path($expr['col'], $this->dialect);
+        }
+
+        throw new InvalidArgumentException('col benötigt einen Bezeichner als String.');
       }
 
       if (isset($expr['expr'])) {
@@ -1063,7 +1211,7 @@ final class SelectBuilder
         $right = $expr['right'] ?? null;
         $op    = $expr['op'];
 
-        if (null !== $right) {
+        if (\array_key_exists('right', $expr)) {
           return $this->renderOp($left, $op, $right);
         }
 
@@ -1101,7 +1249,23 @@ final class SelectBuilder
     $operator = mb_strtoupper(trim($op));
     $leftSql  = $this->renderExpr($left);
 
+    $literal = \is_object($right) ? get_object_vars($right) : $right;
+    $isNull = null === $literal;
+    if (\is_array($literal)) {
+      foreach (['value', 'val', 'literal', 'lit'] as $key) {
+        if (\array_key_exists($key, $literal) && null === $literal[$key]) {
+          $isNull = true;
+        }
+      }
+    }
+    if ($isNull && \in_array($operator, ['=', '!=', '<>'], true)) {
+      return $leftSql.('=' === $operator ? ' IS NULL' : ' IS NOT NULL');
+    }
+
     if (\in_array($operator, ['IN', 'NOT IN'], true)) {
+      if ([] === $right) {
+        return 'IN' === $operator ? '1=0' : '1=1';
+      }
       $rightSql = $this->renderInList($right);
 
       return $leftSql.' '.$operator.' '.$rightSql;
@@ -1469,32 +1633,17 @@ final class SelectBuilder
 
   private function renderSubquery(mixed $query): string
   {
-    if ($query instanceof self) {
-      return '('.$query->statement().')';
+    $sql = $query instanceof self ? $query->statement() : self::fromQuery($query, $this->context)->statement();
+    if ('sqlsrv' === $this->dialect && preg_match('/^\s*;?\s*WITH\b/i', $sql)) {
+      throw new InvalidArgumentException('SQL Server unterstützt kein WITH in einer Unterabfrage; definiere die CTE am Root.');
     }
 
-    return '('.self::fromQuery($query, $this->context)->statement().')';
+    return '('.$sql.')';
   }
 
   private function renderLiteral(mixed $value): string
   {
-    if (null === $value) {
-      return 'NULL';
-    }
-    if (\is_bool($value)) {
-      if ('pgsql' === $this->dialect) {
-        return $value ? 'TRUE' : 'FALSE';
-      }
-
-      return $value ? '1' : '0';
-    }
-    if (\is_int($value) || \is_float($value)) {
-      return (string) $value;
-    }
-
-    $escaped = str_replace("'", "''", (string) $value);
-
-    return "'".$escaped."'";
+    return Dialect::literal($value, $this->dialect);
   }
 
   private function quoteIdentifierPath(string $name): string
@@ -1535,18 +1684,7 @@ final class SelectBuilder
 
   private function quoteIdentifier(string $name): string
   {
-    if ('' === $name) {
-      return $name;
-    }
-
-    if ('sqlsrv' === $this->dialect) {
-      return '['.$name.']';
-    }
-    if ('pgsql' === $this->dialect) {
-      return '"'.str_replace('"', '""', $name).'"';
-    }
-
-    return '`'.$name.'`';
+    return Dialect::identifier($name, $this->dialect);
   }
 
   private function convertDateFormatToSqlSrv(string $format): string
@@ -1636,7 +1774,7 @@ final class SelectBuilder
     }
 
     $keys = array_map(static fn ($key) => self::normalizeKey($key), array_keys($value));
-    foreach (['select', 'from', 'where', 'groupby', 'orderby', 'join', 'leftjoin', 'rightjoin', 'limit', 'offset', 'distinct', 'union', 'unionall'] as $key) {
+    foreach (['select', 'from', 'where', 'groupby', 'having', 'orderby', 'join', 'leftjoin', 'rightjoin', 'limit', 'offset', 'distinct', 'union', 'unionall', 'with', 'recursive', 'unionorderby', 'unionlimit', 'unionoffset'] as $key) {
       if (\in_array($key, $keys, true)) {
         return true;
       }
@@ -1647,29 +1785,7 @@ final class SelectBuilder
 
   private static function normalizeDialectContext(string|array $dialect): array
   {
-    if (\is_array($dialect)) {
-      $context      = $dialect;
-      $dialectValue = $context['dialect'] ?? $context['driver'] ?? $context['name'] ?? null;
-      if ( ! \is_string($dialectValue) || '' === $dialectValue) {
-        throw new InvalidArgumentException('SQL-Dialekt fehlt.');
-      }
-      $context['dialect'] = self::normalizeDialectName($dialectValue);
-
-      return $context;
-    }
-
-    if ( ! \is_string($dialect) || '' === $dialect) {
-      throw new InvalidArgumentException('SQL-Dialekt fehlt.');
-    }
-
-    return ['dialect' => self::normalizeDialectName($dialect)];
-  }
-
-  private static function normalizeDialectName(string $dialect): string
-  {
-    $dialect = mb_strtolower(trim($dialect));
-
-    return \in_array($dialect, ['pgsql', 'postgres', 'postgresql'], true) ? 'pgsql' : $dialect;
+    return Dialect::context($dialect);
   }
 
   private static function normalizeDialect(string|array $dialect): string

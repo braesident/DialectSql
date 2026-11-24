@@ -20,7 +20,7 @@ $sql = SelectBuilder::build($query, 'pgsql');
 // SELECT * FROM "products" ORDER BY id LIMIT 10 OFFSET 20
 ```
 
-Dasselbe Objekt erzeugt bei MySQL `LIMIT 20, 10` und bei SQL Server `OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY`. Bei SELECT verwendet SQL Server im Projekt kein TOP. Bei UPDATE/DELETE wird `limit` dagegen zu `TOP (n)`; PostgreSQL lehnt ein direktes DML-`limit` ab. Details und bekannte Grenzen stehen in der [Limit-/TOP-Gegenüberstellung](SQL_FEATURES.md#2-zeilenbegrenzung-ein-objekt-verschiedene-syntax).
+Dasselbe Objekt erzeugt bei MySQL `LIMIT 20, 10` und bei SQL Server `OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY`. SQL Server verwendet bei SELECT für `limit:0` ein `TOP (0)`, sonst OFFSET/FETCH. Bei UPDATE/DELETE wird `limit` zu `TOP (n)`; PostgreSQL lehnt ein direktes DML-`limit` ab. MySQL-Joins mit DML-Limit werden ausdrücklich abgelehnt. Details stehen in der [Limit-/TOP-Gegenüberstellung](SQL_FEATURES.md#2-zeilenbegrenzung-ein-objekt-verschiedene-syntax).
 
 PostgreSQL unterstützt die vorhandenen Definitionen für Tabellen, Spaltenänderungen, Indizes, Constraints, Views sowie INSERT/UPDATE/DELETE. Beispiele:
 
@@ -94,6 +94,78 @@ Die alten Builder-/Renderer-Klassen unter `Braesident\DbMigration` sind ab DbMig
 ## Tests
 
 `composer test` beziehungsweise `php tests/run.php` benötigt keinen Datenbankserver, CipherPDO oder DbMigration. Die folgenden Beispiele beschreiben die übernommenen SQL-Definitionen und ihre Nutzung in Anwendungen beziehungsweise optional in Migrationen.
+
+Separate Integrationstests mit `php tests/integration.php --require-all` führen SQL gegen konfigurierte MySQL-/SQL-Server-/PostgreSQL-Testverbindungen aus. [Testkonfiguration und Docker-Anleitung](tests/README.md); ein [CI-Workflow](.github/workflows/tests.yml) ist enthalten. Fehlende Testverbindungen werden ohne `--require-all` ausdrücklich übersprungen.
+
+## Eingabeprüfung, Bezeichner und Parameter
+
+Unbekannte SELECT-/Builder-/Spaltenfelder, negative oder gebrochene Limits und unbekannte Dialekte führen zu `InvalidArgumentException`. Ganze numerische Strings wie `"10"` bleiben bei Limits/Offsets zulässig. Nicht unterstützte Angaben werden ausdrücklich abgelehnt, etwa SQL-Server-`JOIN USING`, `unsigned`/`onUpdate` bei SQL-Server-Spalten und MySQL-DML-Joins mit `limit`.
+
+`col` quotet Bezeichner in allen Dialekten. Strings in SELECT-Ausdrücken bleiben SQL; `value` bezeichnet ein Literal, `param` einen geprüften benannten PDO-Platzhalter:
+
+```php
+$query = [
+  'select' => [['col' => 'p.ProductId']],
+  'from' => ['table' => 'products', 'as' => 'p'],
+  'where' => [['col' => 'p.ProductId'], '=', ['param' => 'id']],
+];
+$sql = SelectBuilder::build($query, 'pgsql');
+// SELECT "p"."ProductId" FROM "products" AS "p" WHERE "p"."ProductId" = :id
+$stmt = $pdo->prepare($sql);
+$stmt->execute(['id' => 42]);
+```
+
+`SelectBuilder::param('id')` liefert dieselbe Ausdrucksstruktur. Der Renderer bindet weiterhin keine Werte. SQL-Server-Textliterale erhalten ein N-Präfix für Unicode. Backslashes in MySQL-Literalen werden über `CONVERT(X'...' USING utf8mb4)` erhalten; PostgreSQL verwendet dafür E-Literale.
+
+Leeres `IN []` ergibt `1=0`, leeres `NOT IN []` ergibt `1=1`. Auch `WhereBuilder::andIn()`/`orIn()` entfernen leere Listen nicht mehr; leere Strings und NULL bleiben als übergebene Werte erhalten. Soll ein optionaler Filter bei leerer Benutzerauswahl entfallen, entscheidet dies die Anwendung vor dem Builder-Aufruf. Explizite Vergleiche `= null`/`<> null`, auch mit `value:null`, werden zu IS NULL/IS NOT NULL.
+
+## SELECT-CTEs und globale UNION-Paginierung
+
+```php
+$query = [
+  'with' => [[
+    'name' => 'active_products',
+    'columns' => ['id'],
+    'query' => ['select' => 'id', 'from' => 'products', 'where' => ['active', '=', true]],
+  ]],
+  'select' => 'id',
+  'from' => 'active_products',
+];
+$sql = SelectBuilder::build($query, 'pgsql');
+```
+
+Die gleiche Definition funktioniert für SQL Server und MySQL ab Version 8; ältere MySQL-Versionen werden bei vorhandenen Versionsinformationen abgelehnt. Rekursive SELECT-CTEs setzen `recursive:true`. MySQL/PostgreSQL erhalten WITH RECURSIVE, SQL Server WITH. Fluent: `with($name, $query, $columns = [], $recursive = false)`.
+
+Die CTE-API beschreibt SELECT-CTEs. Ein WITH vor DML benötigt weiterhin explizites SQL; SQL-Server-INSERT-SELECT mit CTE sowie verschachteltes WITH werden abgelehnt. SQL-Server-Anwendungen müssen beim Einfügen in einen größeren Batch das vorherige Statement mit Semikolon beenden. Rekursionsgrenzen und erlaubte rekursive Ausdrücke bleiben serverabhängig.
+
+Für die gesamte UNION-Ergebnismenge gibt es `union_order_by`, `union_limit` und `union_offset` (auch camelCase). Die bestehenden `order_by`/`limit`/`offset` gelten weiterhin für die erste Teilabfrage:
+
+```php
+$query = [
+  'select' => 'id', 'from' => 'products',
+  'union_all' => [['select' => 'id', 'from' => 'archive']],
+  'union_order_by' => [['expr' => 'id', 'dir' => 'DESC']],
+  'union_limit' => 10, 'union_offset' => 20,
+];
+```
+
+Der Builder erzeugt eine äußere SELECT-Abfrage über das UNION. Fluent: `unionOrderBy('id', 'DESC')->unionLimit(10, 20)`. Die UNION-Ausgabespalten müssen für diese äußere Abfrage eindeutig benannt sein.
+
+## DML-Rückgaben mit RETURNING / OUTPUT
+
+```php
+$definition = [
+  'type' => 'insert', 'table' => 'products',
+  'values' => [['name' => 'Öl']],
+  'returning' => ['id', ['col' => 'name', 'as' => 'label']],
+];
+$sql = SqlBuilder::build($definition, 'pgsql');
+// INSERT INTO "products" ("name") VALUES ('Öl') RETURNING "id", "name" AS "label"
+$sql = SqlBuilder::build($definition, 'sqlsrv');
+// INSERT INTO [dbo].[products] ([name]) OUTPUT INSERTED.[id], INSERTED.[name] AS [label] VALUES (N'Öl')
+```
+
+`returning` gilt auch für UPDATE und DELETE. Erlaubt sind eine nicht leere Liste unqualifizierter Zielspalten, optionale Spaltenaliase oder `"*"`. INSERT/UPDATE liefern den neuen, DELETE den entfernten Zustand; SQL Server nutzt INSERTED beziehungsweise DELETED. MySQL lehnt die Option ab. Rückgabeausdrücke, OUTPUT INTO, alte und neue Werte gemeinsam sowie eine automatische MySQL-Emulation sind nicht enthalten. SQL-Server-OUTPUT ohne INTO unterliegt insbesondere Einschränkungen bei aktivierten Triggern; Werte werden vor nachgelagerten Triggeränderungen zurückgegeben. Bei Fehlern oder Rollback sind Rückgaben nicht als bestätigte Speicherung zu verwenden.
 
 ## JSON-Format (Kurzübersicht)
 
@@ -417,8 +489,7 @@ Join-Update:
       "cPostfix": "",
       "nId": { "col": "o.kOrder" }
     },
-    "where": ["o.eStatus", "<>", { "value": "deleted" }],
-    "limit": 10
+    "where": ["o.eStatus", "<>", { "value": "deleted" }]
   }
 }
 ```
@@ -443,8 +514,7 @@ $this->execute([
       'cPostfix' => '',
       'nId' => ['col' => 'o.kOrder']
     ],
-    'where' => ['o.eStatus', '<>', ['value' => 'deleted']],
-    'limit' => 10
+    'where' => ['o.eStatus', '<>', ['value' => 'deleted']]
   ]
 ]);
 ```

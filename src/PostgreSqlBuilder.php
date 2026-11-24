@@ -82,6 +82,10 @@ final class PostgreSqlBuilder
 
     $statements = [];
     foreach ($actions as $action) {
+      if ( ! \is_array($action)) {
+        throw new InvalidArgumentException('alter_table Action muss array sein.');
+      }
+      DefinitionValidator::action($action);
       $type = mb_strtolower((string) ($action['action'] ?? $action['type'] ?? ''));
       $prefix = 'ALTER TABLE '.$table.' ';
       switch ($type) {
@@ -94,6 +98,7 @@ final class PostgreSqlBuilder
           if ( ! isset($action['column'])) {
             unset($column['action'], $column['type']);
           }
+          $column = DefinitionValidator::column($column);
           if ('add_column' === $type) {
             $statements[] = $prefix.'ADD COLUMN '.self::column($column);
           } else {
@@ -201,6 +206,7 @@ final class PostgreSqlBuilder
 
   private static function column(array $column): string
   {
+    $column = DefinitionValidator::column($column);
     $name = self::quote(self::required($column, 'name'));
     if ( ! empty($column['unsigned'])) {
       throw new InvalidArgumentException('PostgreSQL hat kein UNSIGNED; nutze einen passenden Typ mit CHECK.');
@@ -436,11 +442,7 @@ final class PostgreSqlBuilder
 
   private static function quote(string $name): string
   {
-    if ('' === trim($name)) {
-      throw new InvalidArgumentException('PostgreSQL-Bezeichner darf nicht leer sein.');
-    }
-
-    return '"'.str_replace('"', '""', $name).'"';
+    return Dialect::identifier($name, 'pgsql');
   }
 
   private static function required(array $definition, string $key): string

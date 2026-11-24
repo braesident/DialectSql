@@ -6,23 +6,6 @@ use Braesident\DialectSql\SelectBuilder;
 use Braesident\DialectSql\SqlBuilder;
 use Braesident\DialectSql\SqlRenderer;
 
-function sameSql(string|array|null $expected, string|array|null $actual, string $message): void
-{
-  check($expected === $actual, $message."\nErwartet: ".var_export($expected, true)."\nErhalten: ".var_export($actual, true));
-}
-
-function rejectsSql(callable $build, string $message, string $reason): void
-{
-  try {
-    $build();
-  } catch (InvalidArgumentException $exception) {
-    check(str_contains($exception->getMessage(), $reason), $message.' (Fehlergrund)');
-
-    return;
-  }
-  check(false, $message);
-}
-
 $page = ['select' => '*', 'from' => 'products', 'order_by' => 'id', 'limit' => 10, 'offset' => 20];
 sameSql('SELECT * FROM `products` ORDER BY id LIMIT 20, 10', SelectBuilder::build($page, 'mysql'), 'MySQL-Paginierung muss unverändert bleiben.');
 sameSql('SELECT * FROM [products] ORDER BY id OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY', SelectBuilder::build($page, 'sqlsrv'), 'SQL Server nutzt bei SELECT OFFSET/FETCH.');
@@ -196,8 +179,9 @@ rejectsSql(static fn () => SelectBuilder::build(['from' => 'products', 'offset' 
 rejectsSql(static fn () => SelectBuilder::expr(['fn' => 'date_format', 'args' => ['created_at', '%U']], 'pgsql'), 'Nicht übersetzbare Datumsformate müssen fehlschlagen.', '%U');
 rejectsSql(static fn () => SelectBuilder::expr(['fn' => 'date_format', 'args' => ['created_at', ['col' => 'format']]], 'pgsql'), 'Dynamische Datumsformate müssen fehlschlagen.', 'literal');
 foreach (['update', 'delete'] as $type) {
-  rejectsSql(static fn () => SqlBuilder::build(['type' => $type, 'table' => 'products', 'set' => ['active' => true], 'limit' => 1], 'pgsql'), 'PostgreSQL-DML darf LIMIT nicht still ignorieren.', 'limit');
-  rejectsSql(static fn () => SqlBuilder::build(['type' => $type, 'table' => 'products', 'set' => ['active' => true], 'left_join' => [['table' => 'stock', 'on' => ['products.id', '=', 'stock.id']]]], 'pgsql'), 'DML-Outer-Joins dürfen keine andere Semantik erhalten.', 'INNER JOIN');
+  $base = ['type' => $type, 'table' => 'products'] + ('update' === $type ? ['set' => ['active' => true]] : []);
+  rejectsSql(static fn () => SqlBuilder::build($base + ['limit' => 1], 'pgsql'), 'PostgreSQL-DML darf LIMIT nicht still ignorieren.', 'limit');
+  rejectsSql(static fn () => SqlBuilder::build($base + ['left_join' => [['table' => 'stock', 'on' => ['products.id', '=', 'stock.id']]]], 'pgsql'), 'DML-Outer-Joins dürfen keine andere Semantik erhalten.', 'INNER JOIN');
 }
 foreach ([['unsigned' => true], ['onUpdate' => 'CURRENT_TIMESTAMP'], ['autoIncrement' => true, 'default' => 1], ['autoIncrement' => true, 'nullable' => true]] as $option) {
   rejectsSql(static fn () => SqlBuilder::build(['type' => 'create_table', 'table' => 'products', 'columns' => [array_merge(['name' => 'id', 'type' => 'int'], $option)]], 'pgsql'), 'Nicht unterstützte Spaltenkombinationen müssen fehlschlagen.', 'PostgreSQL');

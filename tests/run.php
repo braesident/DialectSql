@@ -2,27 +2,12 @@
 
 declare(strict_types=1);
 
-spl_autoload_register(static function (string $class): void {
-  $prefix = 'Braesident\\DialectSql\\';
-  if (str_starts_with($class, $prefix)) {
-    require dirname(__DIR__).'/src/'.substr($class, strlen($prefix)).'.php';
-  }
-});
+require __DIR__.'/bootstrap.php';
 
 use Braesident\DialectSql\SelectBuilder;
 use Braesident\DialectSql\SqlBuilder;
 use Braesident\DialectSql\SqlRenderer;
 use Braesident\DialectSql\WhereBuilder;
-
-$checks = 0;
-function check(bool $condition, string $message): void
-{
-  global $checks;
-  if ( ! $condition) {
-    throw new RuntimeException($message);
-  }
-  ++$checks;
-}
 
 final class DialectConnection extends PDO
 {
@@ -67,4 +52,5 @@ check('SELECT 3' === $renderer->render(['only' => ['mariadb'], 'sql' => 'SELECT 
 check( ! class_exists('Braesident\\DbMigration\\Migration', false), 'DbMigration darf nicht vorausgesetzt werden.');
 check( ! class_exists('Braesident\\CipherPDO\\CipherPDO', false), 'CipherPDO darf nicht vorausgesetzt werden.');
 require __DIR__.'/postgresql.php';
+require __DIR__.'/correctness.php';
 echo "DialectSql: {$checks} Prüfungen erfolgreich.\n";

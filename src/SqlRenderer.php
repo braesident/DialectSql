@@ -183,7 +183,7 @@ final class SqlRenderer
     }
 
     $keys = array_map(static fn ($key) => self::normalizeKey($key), array_keys($value));
-    foreach (['select', 'from', 'where', 'groupby', 'having', 'orderby', 'join', 'leftjoin', 'rightjoin', 'limit', 'offset', 'distinct', 'union', 'unionall'] as $key) {
+    foreach (['select', 'from', 'where', 'groupby', 'having', 'orderby', 'join', 'leftjoin', 'rightjoin', 'limit', 'offset', 'distinct', 'union', 'unionall', 'with', 'recursive', 'unionorderby', 'unionlimit', 'unionoffset'] as $key) {
       if (\in_array($key, $keys, true)) {
         return true;
       }
@@ -201,17 +201,7 @@ final class SqlRenderer
 
   private function getDialect(): string
   {
-    if ($this->pdo instanceof PDO) {
-      $driver = (string) $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
-      if (\in_array($driver, ['sqlsrv', 'dblib', 'mssql'], true)) {
-        return 'sqlsrv';
-      }
-      if ('pgsql' === $driver) {
-        return 'pgsql';
-      }
-    }
-
-    return 'mysql';
+    return Dialect::context((string) $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME))['dialect'];
   }
 
   private function getDialectContext(): array

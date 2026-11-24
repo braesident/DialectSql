@@ -589,13 +589,10 @@ final class WhereBuilder
    */
   public function andIn(string $column, array $values, ?string $prefix = null): self
   {
-    $filtered = array_values(array_filter(
-      $values,
-      static fn ($value) => null !== $value && ( ! \is_string($value) || '' !== $value)
-    ));
+    $filtered = array_values($values);
 
     if ([] === $filtered) {
-      return $this;
+      return $this->and([$column, 'IN', []]);
     }
 
     $items = [];
@@ -619,12 +616,11 @@ final class WhereBuilder
    */
   public function orIn(string $column, array $values, ?string $prefix = null): self
   {
-    $filtered = array_values(array_filter(
-      $values,
-      static fn ($value) => null !== $value && ( ! \is_string($value) || '' !== $value)
-    ));
+    $filtered = array_values($values);
 
     if ([] === $filtered) {
+      $this->appendOrCondition([$column, 'IN', []]);
+
       return $this;
     }
 

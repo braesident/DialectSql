@@ -136,6 +136,9 @@
         },
         {
           "$ref": "#/$defs/rawDefinition"
+        },
+        {
+          "$ref": "#/$defs/queryDefinition"
         }
       ]
     },
@@ -659,6 +662,9 @@
         },
         "query": {
           "$ref": "#/$defs/queryDefinition"
+        },
+        "returning": {
+          "$ref": "#/$defs/returning"
         }
       },
       "required": [
@@ -739,8 +745,10 @@
           "$ref": "#/$defs/queryJoinList"
         },
         "limit": {
-          "type": "integer",
-          "minimum": 0
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "returning": {
+          "$ref": "#/$defs/returning"
         }
       },
       "required": [
@@ -797,8 +805,10 @@
           "$ref": "#/$defs/queryJoinList"
         },
         "limit": {
-          "type": "integer",
-          "minimum": 0
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "returning": {
+          "$ref": "#/$defs/returning"
         }
       },
       "required": [
@@ -1901,7 +1911,7 @@
     },
     "queryDefinition": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "select": {
           "$ref": "#/$defs/querySelect"
@@ -1943,12 +1953,10 @@
           "$ref": "#/$defs/queryOrderBy"
         },
         "limit": {
-          "type": "integer",
-          "minimum": 0
+          "$ref": "#/$defs/nonNegativeCount"
         },
         "offset": {
-          "type": "integer",
-          "minimum": 0
+          "$ref": "#/$defs/nonNegativeCount"
         },
         "distinct": {
           "type": "boolean"
@@ -1961,11 +1969,33 @@
         },
         "unionAll": {
           "$ref": "#/$defs/queryUnionList"
+        },
+        "with": {
+          "$ref": "#/$defs/cteList"
+        },
+        "union_order_by": {
+          "$ref": "#/$defs/queryOrderBy"
+        },
+        "unionOrderBy": {
+          "$ref": "#/$defs/queryOrderBy"
+        },
+        "union_limit": {
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "unionLimit": {
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "union_offset": {
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "unionOffset": {
+          "$ref": "#/$defs/nonNegativeCount"
+        },
+        "recursive": {
+          "type": "boolean"
         }
       },
-      "required": [
-        "select"
-      ]
+      "minProperties": 1
     },
     "querySelect": {
       "oneOf": [
@@ -2087,6 +2117,10 @@
         },
         "case": {
           "$ref": "#/$defs/caseExpression"
+        },
+        "param": {
+          "type": "string",
+          "pattern": "^:?[a-zA-Z_][a-zA-Z0-9_]*$"
         }
       }
     },
@@ -2229,7 +2263,7 @@
     },
     "queryJoinDefinition": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "table": {
           "$ref": "#/$defs/sqlString"
@@ -2251,6 +2285,9 @@
         },
         "using": {
           "$ref": "#/$defs/columnList"
+        },
+        "schema": {
+          "$ref": "#/$defs/sqlString"
         }
       },
       "oneOf": [
@@ -2542,6 +2579,87 @@
         "name"
       ],
       "description": "Spaltenänderung; PostgreSQL ändert nur ausdrücklich angegebene Eigenschaften."
+    },
+    "nonNegativeCount": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cteList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/cteDefinition"
+      }
+    },
+    "cteDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/sqlString"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnList"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/queryDefinition"
+            },
+            {
+              "$ref": "#/$defs/sqlString"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "query"
+      ]
+    },
+    "returning": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sqlString"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/sqlString"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "col": {
+                    "$ref": "#/$defs/sqlString"
+                  },
+                  "as": {
+                    "$ref": "#/$defs/sqlString"
+                  }
+                },
+                "required": [
+                  "col"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   }
 }

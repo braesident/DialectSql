@@ -13,7 +13,9 @@
     "sort-packages": true
   },
   "scripts": {
-    "test": "@php tests/run.php"
+    "test": "@php tests/run.php",
+    "test:integration": "@php tests/integration.php",
+    "test:integration:all": "@php tests/integration.php --require-all"
   },
   "require": {
     "php": ">=8.0",

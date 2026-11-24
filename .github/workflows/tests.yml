@@ -1,0 +1,46 @@
+name: Tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        php: ['8.0', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo
+          coverage: none
+      - run: php tests/run.php
+      - run: composer validate --strict
+  integration:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, pdo_pgsql, pdo_sqlsrv
+          coverage: none
+      - name: Start test databases
+        run: docker compose -f compose.test.yaml up -d --wait --wait-timeout 180
+      - name: Execute all dialects
+        env:
+          DIALECTSQL_TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=13306;dbname=dialectsql_test;charset=utf8mb4
+          DIALECTSQL_TEST_MYSQL_USER: root
+          DIALECTSQL_TEST_MYSQL_PASSWORD: DialectSql_test_123!
+          DIALECTSQL_TEST_PGSQL_DSN: pgsql:host=127.0.0.1;port=15432;dbname=dialectsql_test;connect_timeout=5
+          DIALECTSQL_TEST_PGSQL_USER: dialectsql
+          DIALECTSQL_TEST_PGSQL_PASSWORD: DialectSql_test_123!
+          DIALECTSQL_TEST_SQLSRV_DSN: sqlsrv:Server=127.0.0.1,11433;Database=tempdb;Encrypt=1;TrustServerCertificate=1;LoginTimeout=5
+          DIALECTSQL_TEST_SQLSRV_USER: sa
+          DIALECTSQL_TEST_SQLSRV_PASSWORD: DialectSql_test_123!
+        run: php tests/integration.php --require-all
+      - name: Stop test databases
+        if: always()
+        run: docker compose -f compose.test.yaml down -v
