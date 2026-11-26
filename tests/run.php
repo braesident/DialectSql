@@ -55,4 +55,5 @@ require __DIR__.'/postgresql.php';
 require __DIR__.'/correctness.php';
 require __DIR__.'/upsert.php';
 require __DIR__.'/portability.php';
+require __DIR__.'/dialect-options.php';
 echo "DialectSql: {$checks} Prüfungen erfolgreich.\n";

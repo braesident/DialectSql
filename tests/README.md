@@ -10,6 +10,8 @@ Alternativ `composer test`. PHP-Warnungen und Notices werden als Testfehler beha
 
 [Portabilitätstests](portability.php) prüfen typisierte PostgreSQL-Boolean-Defaults einschließlich numerischer Typ-Overrides, explizite Spaltenreferenzen in ORDER BY/UNION sowie WhereBuilder-Ausdrücke, Parameter, Gruppen und IN-Listen für alle drei Dialekte.
 
+[Dialektoptionstests](dialect-options.php) prüfen Schema-/Spalten-Maps, Alias-/Fallback-Regeln, MariaDB-Vorrang, explizites NULL, unveränderte Datenwerte und die strukturierte Suche mit Parametern, Fallsteuerung, Kollationen, NOT und ESCAPE. Fehlende Typ-/Kollationsangaben, unbekannte Schlüssel und widersprüchliche Einstellungen sind Fehlerfälle.
+
 ## Integrationstests
 
 ```shell
@@ -24,6 +26,8 @@ Die Integrationstests führen generierte Statements wirklich aus. Sie vergleiche
 
 [Typ- und Ausdruckstests](integration-portability.php) ergänzen numerisch angegebene Boolean-Defaults bei CREATE/ADD, numerische PostgreSQL-Typ-Overrides, typisiertes MODIFY bei MySQL/PostgreSQL und gequotete Spalten mit gemischter Groß-/Kleinschreibung in WHERE, ORDER BY und globalen UNION-Abfragen. Auch Funktionsausdrücke und IN-Objekte werden mit gebundenen Parametern ausgeführt. Die neuen Serverfälle sind lokal ohne Test-DSNs nicht ausgeführt; ihr CI-Nachweis steht noch aus.
 
+[Schema- und Suchtests](integration-options.php) prüfen Maps in CREATE/ALTER, Identity, INSERT/UPDATE und SELECT sowie numerische Flags und die eingegrenzte Spaltenoption ON UPDATE. SQL Server/PostgreSQL verwenden eigene, zufällig benannte Schemas; MySQL qualifiziert Tabellen ausdrücklich mit der im Test-DSN ausgewählten Datenbank. Es wird keine zusätzliche Datenbank angelegt. Die Suchfälle prüfen beide Schreibweisen, explizite Fallunterscheidung, Unicode-Zeichenwildcards, ESCAPE und NULL. Auch diese neuen Serverfälle benötigen einen CI-/Datenbanklauf.
+
 CI-Stand vom 26.11.2026: Im [GitHub-Lauf 45794303822](https://github.com/braesident/DialectSql/actions/runs/45794303822) waren `unit (8.0)`, `unit (8.3)` und die SQL-Server-/PostgreSQL-Integration erfolgreich. MySQL scheiterte mit Fehler 1052 an der mehrdeutigen Bestandsreferenz `quantity`. Die Korrektur qualifiziert Bestandsreferenzen mit der Zieltabelle; ihre Ausführung und die zusätzlichen Funktionen-/CASE-Fälle stehen im nächsten CI-Lauf noch aus. Lokal sind dafür weiterhin passende DSNs und PDO-Treiber erforderlich.
 
 Verbindungen werden ausschließlich aus folgenden Umgebungsvariablen gelesen:
@@ -34,9 +38,9 @@ Verbindungen werden ausschließlich aus folgenden Umgebungsvariablen gelesen:
 | SQL Server | `DIALECTSQL_TEST_SQLSRV_DSN` | `DIALECTSQL_TEST_SQLSRV_USER` | `DIALECTSQL_TEST_SQLSRV_PASSWORD` | `pdo_sqlsrv` |
 | PostgreSQL | `DIALECTSQL_TEST_PGSQL_DSN` | `DIALECTSQL_TEST_PGSQL_USER` | `DIALECTSQL_TEST_PGSQL_PASSWORD` | `pdo_pgsql` |
 
-Ohne DSN wird der Dialekt ausdrücklich übersprungen. Mit `--require-all` gilt jede fehlende Verbindung als Fehler; zusammen mit `--dialect` gilt die Pflicht für den ausgewählten Dialekt. Eine konfigurierte, aber fehlerhafte Verbindung oder ein fehlender Treiber ist immer ein Fehler. Die Tests legen keine Datenbank an und lesen keine Anwendungskonfiguration. Tabellen und Views erhalten pro Lauf zufällige Namen und werden im `finally`-Block entfernt, sofern der Prozess regulär beendet wird. Nur nach erfolgreicher Erstellung registrierte Testobjekte werden gelöscht.
+Ohne DSN wird der Dialekt ausdrücklich übersprungen. Mit `--require-all` gilt jede fehlende Verbindung als Fehler; zusammen mit `--dialect` gilt die Pflicht für den ausgewählten Dialekt. Eine konfigurierte, aber fehlerhafte Verbindung oder ein fehlender Treiber ist immer ein Fehler. Die Tests legen keine Datenbank an und lesen keine Anwendungskonfiguration. Tabellen, Views und eigene Schemas erhalten pro Lauf zufällige Namen und werden im `finally`-Block in umgekehrter Erstellungsreihenfolge entfernt, sofern der Prozess regulär beendet wird. Nur nach erfolgreicher Erstellung registrierte Testobjekte werden gelöscht.
 
-Eine separate Testdatenbank mit CREATE-/ALTER-/DROP-/DML-Rechten verwenden. Die Tests setzen keinen generellen Transaktions-Rollback voraus, weil DDL-Transaktionen zwischen den Dialekten unterschiedlich funktionieren.
+Eine separate Testdatenbank mit CREATE-/ALTER-/DROP-/DML-Rechten verwenden; für SQL Server/PostgreSQL sind auch CREATE-/DROP-SCHEMA-Rechte nötig. Die Tests setzen keinen generellen Transaktions-Rollback voraus, weil DDL-Transaktionen zwischen den Dialekten unterschiedlich funktionieren.
 
 ## Lokale Docker-Testserver
 

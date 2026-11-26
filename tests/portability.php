@@ -18,8 +18,9 @@ foreach ([[true, 'TRUE'], [false, 'FALSE'], [1, 'TRUE'], [0, 'FALSE'], [1.0, 'TR
 }
 foreach ([2, -1, 0.5, INF, 'maybe', 'o', '', [], ['raw' => 'TRUE']] as $invalid) {
   $column = $booleanColumn + ['default' => $invalid];
-  rejectsSql(static fn () => SqlBuilder::build(['type' => 'create_table', 'table' => 'flags', 'columns' => [$column]], 'pgsql'), 'Ungültige Boolean-Defaults müssen frühzeitig fehlschlagen.', 'Boolean-Default');
-  rejectsSql(static fn () => SqlBuilder::build(['type' => 'alter_table', 'table' => 'flags', 'actions' => [['action' => 'modify_column', 'column' => $column]]], 'pgsql'), 'Auch ALTER muss ungültige bekannte Boolean-Defaults ablehnen.', 'Boolean-Default');
+  $reason = \is_array($invalid) && isset($invalid['raw']) ? 'raw' : 'Boolean-Default';
+  rejectsSql(static fn () => SqlBuilder::build(['type' => 'create_table', 'table' => 'flags', 'columns' => [$column]], 'pgsql'), 'Ungültige Boolean-Defaults müssen frühzeitig fehlschlagen.', $reason);
+  rejectsSql(static fn () => SqlBuilder::build(['type' => 'alter_table', 'table' => 'flags', 'actions' => [['action' => 'modify_column', 'column' => $column]]], 'pgsql'), 'Auch ALTER muss ungültige bekannte Boolean-Defaults ablehnen.', $reason);
 }
 foreach (['bool', 'boolean'] as $type) {
   $sql = SqlBuilder::build(['type' => 'create_table', 'table' => 'flags', 'columns' => [['name' => 'flag', 'type' => $type, 'default' => 1]]], 'pgsql');

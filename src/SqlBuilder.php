@@ -22,13 +22,24 @@ final class SqlBuilder
       $type = 'raw';
     }
     $normalized = DefinitionValidator::definition($normalized, $type);
+    if (\array_key_exists('schema', $normalized)) {
+      $mappedSchema = \is_array($normalized['schema']);
+      $schema = Dialect::schema($normalized['schema'], $context);
+      unset($normalized['schema']);
+      if (null !== $schema) {
+        $normalized['schema'] = $schema;
+        if ('mysql' === $dialect && $mappedSchema) {
+          $normalized = self::qualifyMysqlRelations($normalized, $schema);
+        }
+      }
+    }
 
     if ('pgsql' === $dialect && \in_array($type, ['create_table', 'drop_table', 'alter_table', 'create_view', 'drop_view', 'create_trigger', 'alter_trigger', 'drop_trigger'], true)) {
       return PostgreSqlBuilder::build($normalized, $context);
     }
 
     return match ($type) {
-      'create_table' => self::buildCreateTable($normalized, $dialect),
+      'create_table' => self::buildCreateTable($normalized, $dialect, $context),
       'drop_table'   => self::buildDropTable($normalized, $dialect),
       'create_view'  => self::buildCreateView($normalized, $dialect, $context),
       'drop_view'    => self::buildDropView($normalized, $dialect),
@@ -129,7 +140,7 @@ final class SqlBuilder
     return $result;
   }
 
-  private static function buildCreateTable(array $definition, string $dialect): string|array
+  private static function buildCreateTable(array $definition, string $dialect, array $context): string|array
   {
     $table = (string) ($definition['table'] ?? '');
     if ('' === $table) {
@@ -153,6 +164,7 @@ final class SqlBuilder
       if ( ! \is_array($column)) {
         throw new InvalidArgumentException('Spalten müssen Arrays sein.');
       }
+      $column = DefinitionValidator::column($column, $context);
       if ('sqlsrv' === $dialect && isset($column['comment'])) {
         $comment = $column['comment'];
         if (\is_string($comment) && '' !== trim($comment)) {
@@ -162,7 +174,7 @@ final class SqlBuilder
           }
         }
       }
-      $lines[] = self::buildColumn($column, $dialect, $table, $extraChecks);
+      $lines[] = self::buildColumn($column, $dialect, $table, $extraChecks, $context);
     }
 
     if ( ! empty($primaryKey)) {
@@ -190,10 +202,10 @@ final class SqlBuilder
     }
 
     if ('sqlsrv' === $dialect) {
-      $tableRef = '['.$schema.'].['.$table.']';
+      $tableRef = self::dmlTable($table, 'sqlsrv', $schema);
       if ($ifNotExists) {
         $sql   = [];
-        $sql[] = "IF OBJECT_ID(N'".$tableRef."', N'U') IS NULL";
+        $sql[] = "IF OBJECT_ID(".Dialect::literal($tableRef, 'sqlsrv').", N'U') IS NULL";
         $sql[] = 'BEGIN';
         $sql[] = '  CREATE TABLE '.$tableRef.' (';
         $sql[] = self::indentLines($lines, 4);
@@ -235,7 +247,7 @@ final class SqlBuilder
     if ($ifNotExists) {
       $sql .= ' IF NOT EXISTS';
     }
-    $sql .= ' `'.$table.'` ('.\PHP_EOL;
+    $sql .= ' '.Dialect::path($table, $dialect).' ('.\PHP_EOL;
     $sql .= self::indentLines($lines, 2);
     $sql .= \PHP_EOL.') ENGINE = InnoDB';
 
@@ -253,9 +265,9 @@ final class SqlBuilder
     $ifExists = \array_key_exists('ifExists', $definition) ? (bool) $definition['ifExists'] : true;
 
     if ('sqlsrv' === $dialect) {
-      $tableRef = '['.$schema.'].['.$table.']';
+      $tableRef = self::dmlTable($table, 'sqlsrv', $schema);
       if ($ifExists) {
-        return "IF OBJECT_ID(N'".$tableRef."', N'U') IS NOT NULL DROP TABLE ".$tableRef;
+        return "IF OBJECT_ID(".Dialect::literal($tableRef, 'sqlsrv').", N'U') IS NOT NULL DROP TABLE ".$tableRef;
       }
 
       return 'DROP TABLE '.$tableRef;
@@ -265,7 +277,7 @@ final class SqlBuilder
     if ($ifExists) {
       $sql .= ' IF EXISTS';
     }
-    $sql .= ' `'.$table.'`';
+    $sql .= ' '.Dialect::path($table, $dialect);
 
     return $sql;
   }
@@ -286,10 +298,10 @@ final class SqlBuilder
     $selectSql = SelectBuilder::build($select, $context);
 
     if ('sqlsrv' === $dialect) {
-      $viewRef = '['.$schema.'].['.$view.']';
+      $viewRef = self::dmlTable($view, 'sqlsrv', $schema);
       if ($replace) {
         $sql   = [];
-        $sql[] = "IF OBJECT_ID(N'".$viewRef."', N'V') IS NULL EXEC('CREATE VIEW ".$viewRef." AS SELECT 1 AS dummy')";
+        $sql[] = "IF OBJECT_ID(".Dialect::literal($viewRef, 'sqlsrv').", N'V') IS NULL EXEC(".Dialect::literal('CREATE VIEW '.$viewRef.' AS SELECT 1 AS dummy', 'sqlsrv').')';
         $sql[] = 'ALTER VIEW '.$viewRef.' AS '.$selectSql;
 
         return $sql;
@@ -302,7 +314,7 @@ final class SqlBuilder
     if ($replace) {
       $sql .= 'OR REPLACE ';
     }
-    $sql .= 'VIEW `'.$view.'` AS '.$selectSql;
+    $sql .= 'VIEW '.Dialect::path($view, $dialect).' AS '.$selectSql;
 
     return $sql;
   }
@@ -318,9 +330,9 @@ final class SqlBuilder
     $ifExists = \array_key_exists('ifExists', $definition) ? (bool) $definition['ifExists'] : true;
 
     if ('sqlsrv' === $dialect) {
-      $viewRef = '['.$schema.'].['.$view.']';
+      $viewRef = self::dmlTable($view, 'sqlsrv', $schema);
       if ($ifExists) {
-        return "IF OBJECT_ID(N'".$viewRef."', N'V') IS NOT NULL DROP VIEW ".$viewRef;
+        return "IF OBJECT_ID(".Dialect::literal($viewRef, 'sqlsrv').", N'V') IS NOT NULL DROP VIEW ".$viewRef;
       }
 
       return 'DROP VIEW '.$viewRef;
@@ -330,7 +342,7 @@ final class SqlBuilder
     if ($ifExists) {
       $sql .= ' IF EXISTS';
     }
-    $sql .= ' `'.$view.'`';
+    $sql .= ' '.Dialect::path($view, $dialect);
 
     return $sql;
   }
@@ -366,9 +378,9 @@ final class SqlBuilder
     $ifExists = \array_key_exists('ifExists', $definition) ? (bool) $definition['ifExists'] : true;
 
     if ('sqlsrv' === $dialect) {
-      $triggerRef = '['.$schema.'].['.$name.']';
+      $triggerRef = self::dmlTable($name, 'sqlsrv', $schema);
       if ($ifExists) {
-        return "IF OBJECT_ID(N'".$triggerRef."', N'TR') IS NOT NULL DROP TRIGGER ".$triggerRef;
+        return "IF OBJECT_ID(".Dialect::literal($triggerRef, 'sqlsrv').", N'TR') IS NOT NULL DROP TRIGGER ".$triggerRef;
       }
 
       return 'DROP TRIGGER '.$triggerRef;
@@ -378,7 +390,7 @@ final class SqlBuilder
     if ($ifExists) {
       $sql .= ' IF EXISTS';
     }
-    $sql .= ' `'.$name.'`';
+    $sql .= ' '.Dialect::path($name, $dialect);
 
     return $sql;
   }
@@ -407,8 +419,8 @@ final class SqlBuilder
     }
 
     if ('sqlsrv' === $dialect) {
-      $triggerRef = '['.$schema.'].['.$name.']';
-      $tableRef   = '['.$schema.'].['.$table.']';
+      $triggerRef = self::dmlTable($name, 'sqlsrv', $schema);
+      $tableRef   = self::dmlTable($table, 'sqlsrv', $schema);
       $eventSql   = implode(', ', $events);
 
       return $action.' TRIGGER '.$triggerRef.' ON '.$tableRef.' '.$timing.' '.$eventSql.' AS '.$bodySql;
@@ -419,7 +431,7 @@ final class SqlBuilder
     if ( ! $forEachRow) {
       throw new InvalidArgumentException('mysql trigger benötigt FOR EACH ROW.');
     }
-    $sql = $action.' TRIGGER `'.$name.'` '.$timing.' '.$event.' ON `'.$table.'`';
+    $sql = $action.' TRIGGER '.Dialect::path($name, $dialect).' '.$timing.' '.$event.' ON '.Dialect::path($table, $dialect);
     $sql .= ' FOR EACH ROW';
     $sql .= ' '.$bodySql;
 
@@ -739,7 +751,7 @@ final class SqlBuilder
       $actions = [$actions];
     }
 
-    $tableRef   = 'sqlsrv' === $dialect ? '['.$schema.'].['.$table.']' : '`'.$table.'`';
+    $tableRef   = self::dmlTable($table, $dialect, $schema);
     $statements = [];
 
     foreach ($actions as $action) {
@@ -764,7 +776,7 @@ final class SqlBuilder
           }
 
           $extraChecks = [];
-          $columnSql   = self::buildColumn($column, $dialect, $table, $extraChecks);
+          $columnSql   = self::buildColumn($column, $dialect, $table, $extraChecks, $context);
           $sql         = 'ALTER TABLE '.$tableRef.' ADD '.$columnSql;
 
           if ('mysql' === $dialect) {
@@ -792,7 +804,7 @@ final class SqlBuilder
           if ( ! \is_array($column)) {
             throw new InvalidArgumentException('modify_column benötigt "column".');
           }
-          $column = DefinitionValidator::column($column);
+          $column = DefinitionValidator::column($column, $context);
 
           $extraChecks = [];
           if ('sqlsrv' === $dialect) {
@@ -820,7 +832,7 @@ final class SqlBuilder
               $statements[] = 'ALTER TABLE '.$tableRef.' ADD '.$checkSql;
             }
           } else {
-            $columnSql = self::buildColumn($column, $dialect, $table, $extraChecks);
+            $columnSql = self::buildColumn($column, $dialect, $table, $extraChecks, $context);
             $sql       = 'ALTER TABLE '.$tableRef.' MODIFY COLUMN '.$columnSql;
 
             $after = $action['after'] ?? null;
@@ -864,7 +876,7 @@ final class SqlBuilder
             }
 
             $extraChecks = [];
-            $columnSql   = self::buildColumn($column, $dialect, $table, $extraChecks);
+            $columnSql   = self::buildColumn($column, $dialect, $table, $extraChecks, $context);
             $statements[] = 'ALTER TABLE '.$tableRef.' CHANGE COLUMN '.self::quoteColumn($from, $dialect).' '.$columnSql;
 
             foreach ($extraChecks as $checkSql) {
@@ -882,10 +894,10 @@ final class SqlBuilder
           if ('sqlsrv' === $dialect) {
             $statements[] = "EXEC sp_rename '".$schema.'.'.$oldName."', '".$newName."'";
           } else {
-            $statements[] = 'RENAME TABLE `'.$oldName.'` TO `'.$newName.'`';
+            $statements[] = 'RENAME TABLE '.Dialect::path($oldName, $dialect).' TO '.Dialect::path($newName, $dialect);
           }
           $table    = $newName;
-          $tableRef = 'sqlsrv' === $dialect ? '['.$schema.'].['.$table.']' : '`'.$table.'`';
+          $tableRef = self::dmlTable($table, $dialect, $schema);
           break;
 
         case 'add_index':
@@ -1956,6 +1968,57 @@ final class SqlBuilder
     return self::dmlTable($table, 'pgsql', $definition['schema'] ?? null);
   }
 
+  /** A MySQL schema map explicitly opts into a database-qualified target. */
+  private static function qualifyMysqlRelations(array $definition, string $schema): array
+  {
+    $qualify = static fn ($name) => \is_string($name) && '' !== $name && ! str_contains($name, '.') ? $schema.'.'.$name : $name;
+    $keys = match (mb_strtolower((string) ($definition['type'] ?? ''))) {
+      'create_view', 'drop_view' => ['view', 'name'],
+      'create_trigger', 'alter_trigger', 'drop_trigger' => ['name', 'trigger', 'triggerName', 'table'],
+      default => ['table']
+    };
+    foreach ($keys as $key) {
+      if (isset($definition[$key])) {
+        $definition[$key] = $qualify($definition[$key]);
+      }
+    }
+    foreach ($definition['foreignKeys'] ?? [] as $index => $foreignKey) {
+      if (isset($foreignKey['refTable'])) {
+        $definition['foreignKeys'][$index]['refTable'] = $qualify($foreignKey['refTable']);
+      }
+    }
+    $actionKey = \array_key_exists('actions', $definition) ? 'actions' : 'action';
+    if (isset($definition[$actionKey]) && \is_array($definition[$actionKey])) {
+      $list = self::isList($definition[$actionKey]);
+      $actions = $list ? $definition[$actionKey] : [$definition[$actionKey]];
+      foreach ($actions as &$action) {
+        if ( ! \is_array($action)) {
+          continue;
+        }
+        $actionType = $action['action'] ?? $action['type'] ?? '';
+        $actionType = \is_string($actionType) ? mb_strtolower($actionType) : '';
+        if ('rename_table' === $actionType) {
+          foreach (['to', 'new', 'name'] as $key) {
+            if (isset($action[$key])) {
+              $action[$key] = $qualify($action[$key]);
+            }
+          }
+        }
+        if ('add_foreign_key' === $actionType) {
+          if (isset($action['foreignKey']['refTable'])) {
+            $action['foreignKey']['refTable'] = $qualify($action['foreignKey']['refTable']);
+          } elseif (isset($action['refTable'])) {
+            $action['refTable'] = $qualify($action['refTable']);
+          }
+        }
+      }
+      unset($action);
+      $definition[$actionKey] = $list ? $actions : $actions[0];
+    }
+
+    return $definition;
+  }
+
   private static function dmlTable(string $table, string $dialect, ?string $schema = null): string
   {
     if ('sqlsrv' === $dialect) {
@@ -2115,7 +2178,7 @@ final class SqlBuilder
         $normalized[mb_strtolower((string) $key)] = $value;
       }
 
-      $operatorKeys = ['and', 'or', 'not', 'exists', 'not_exists', 'is_null', 'is_not_null', 'between'];
+      $operatorKeys = ['and', 'or', 'not', 'exists', 'not_exists', 'is_null', 'is_not_null', 'between', 'like'];
       foreach ($operatorKeys as $key) {
         if (\array_key_exists($key, $normalized)) {
           return SelectBuilder::condition($where, $context);
@@ -2153,7 +2216,7 @@ final class SqlBuilder
       throw new InvalidArgumentException('sqlsrv column comment benötigt table und column.');
     }
 
-    $tableRef   = '['.$schema.'].['.$table.']';
+    $tableRef   = self::dmlTable($table, 'sqlsrv', $schema);
     $tableRefLit = str_replace("'", "''", $tableRef);
     $schemaLit  = str_replace("'", "''", $schema);
     $tableLit   = str_replace("'", "''", $table);
@@ -2269,13 +2332,10 @@ final class SqlBuilder
       $alias = null;
     }
 
-    $schema = $join['schema'] ?? null;
-    if (null !== $schema && ! \is_string($schema)) {
-      throw new InvalidArgumentException('update join'.(null !== $idx ? '['.$idx.']' : '').' schema muss string sein.');
-    }
-    $schema = \is_string($schema) ? trim($schema) : null;
-    if ('' === $schema) {
-      $schema = null;
+    $mappedSchema = isset($join['schema']) && (\is_array($join['schema']) || \is_object($join['schema']));
+    $schema = Dialect::schema($join['schema'] ?? null, $context);
+    if ('mysql' === $dialect && $mappedSchema && null !== $schema && \is_string($table) && ! str_contains($table, '.')) {
+      $table = $schema.'.'.$table;
     }
     if (null === $schema && 'sqlsrv' === $dialect) {
       $schema = $defaultSchema;
@@ -2306,7 +2366,7 @@ final class SqlBuilder
       $schema = $join['schema'] ?? null;
       $schema = \is_string($schema) && '' !== $schema ? $schema : ('sqlsrv' === $dialect ? $defaultSchema : null);
       if ('sqlsrv' === $dialect && null !== $schema && ! self::isRawIdentifier($join['table']) && false === str_contains($join['table'], '.')) {
-        $source = '['.$schema.'].['.$join['table'].']';
+        $source = self::dmlTable($join['table'], $dialect, $schema);
       } else {
         $source = self::quoteIdentifierPath($join['table'], $dialect);
       }
@@ -2346,9 +2406,9 @@ final class SqlBuilder
     return false !== strpbrk($name, '`[]\"');
   }
 
-  private static function buildColumn(array $column, string $dialect, string $table, array &$extraChecks): string
+  private static function buildColumn(array $column, string $dialect, string $table, array &$extraChecks, array $context): string
   {
-    $column = DefinitionValidator::column($column);
+    $column = DefinitionValidator::column($column, $context);
     if ('sqlsrv' === $dialect && (! empty($column['unsigned']) || ! empty($column['onUpdate']))) {
       throw new InvalidArgumentException('SQL Server unterstützt kein unsigned/onUpdate für Spalten.');
     }
@@ -2561,9 +2621,7 @@ final class SqlBuilder
     if ($name) {
       $sql = ('sqlsrv' === $dialect ? 'CONSTRAINT ['.$name.'] ' : 'CONSTRAINT `'.$name.'` ').$sql;
     }
-    $refTableSql = 'sqlsrv' === $dialect
-      ? '['.$schema.'].['.$refTable.']'
-      : '`'.$refTable.'`';
+    $refTableSql = self::dmlTable($refTable, $dialect, $schema);
     $sql .= 'REFERENCES '.$refTableSql.' ('.self::quoteColumnList($refColumns, $dialect).')';
     if ($onDelete) {
       $sql .= ' ON DELETE '.$onDelete;

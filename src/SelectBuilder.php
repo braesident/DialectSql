@@ -144,6 +144,14 @@ final class SelectBuilder
     return ['incoming' => $column];
   }
 
+  /** Builds an explicit LIKE predicate; scalar string patterns are literals. */
+  public static function like(mixed $expr, mixed $pattern, array $options = []): array
+  {
+    DefinitionValidator::keys($options, ['caseSensitive', 'collation', 'escape', 'not'], 'LIKE-Optionen');
+
+    return ['like' => array_merge(['expr' => $expr, 'pattern' => $pattern], $options)];
+  }
+
   /**
    * Builds a CASE WHEN item.
    */
@@ -654,13 +662,7 @@ final class SelectBuilder
     if (\is_array($from)) {
       DefinitionValidator::keys($from, ['table', 'name', 'as', 'alias', 'schema', 'query'], 'FROM');
       $alias = $from['as'] ?? $from['alias'] ?? $as;
-      $schema = $from['schema'] ?? null;
-      if (\is_string($schema)) {
-        $schema = trim($schema);
-        if ('' === $schema) {
-          $schema = null;
-        }
-      }
+      $schema = Dialect::schema($from['schema'] ?? null, $this->context);
       if (isset($from['query'])) {
         return [
           'type'  => 'query',
@@ -719,13 +721,7 @@ final class SelectBuilder
       $alias = $join['as'] ?? $join['alias'] ?? null;
       $on    = $join['on'] ?? null;
       $using = $join['using'] ?? null;
-      $schema = $join['schema'] ?? null;
-      if (\is_string($schema)) {
-        $schema = trim($schema);
-        if ('' === $schema) {
-          $schema = null;
-        }
-      }
+      $schema = Dialect::schema($join['schema'] ?? null, $this->context);
 
       if (null === $table && null === $query) {
         throw new InvalidArgumentException('join benötigt table oder query.');
@@ -1088,6 +1084,9 @@ final class SelectBuilder
       if (isset($normalized['is_not_null'])) {
         return $this->renderExpr($normalized['is_not_null']).' IS NOT NULL';
       }
+      if (\array_key_exists('like', $normalized)) {
+        return $this->renderLike($normalized['like']);
+      }
       if (isset($normalized['between'])) {
         $between = $normalized['between'];
         if (\is_object($between)) {
@@ -1185,6 +1184,10 @@ final class SelectBuilder
         return trim($expr['raw']);
       }
 
+      if (\array_key_exists('like', $expr)) {
+        return $this->renderLike($expr['like']);
+      }
+
       if (\array_key_exists('col', $expr)) {
         if (\is_string($expr['col'])) {
           if (isset($this->context['upsert'])) {
@@ -1279,6 +1282,78 @@ final class SelectBuilder
     }
 
     throw new InvalidArgumentException('Ungültiger Ausdruck.');
+  }
+
+  private function renderLike(mixed $like): string
+  {
+    if (\is_object($like)) {
+      $like = get_object_vars($like);
+    }
+    if ( ! \is_array($like)) {
+      throw new InvalidArgumentException('like benötigt ein Objekt mit expr und pattern.');
+    }
+    DefinitionValidator::keys($like, ['expr', 'pattern', 'caseSensitive', 'collation', 'escape', 'not'], 'LIKE');
+    foreach (['expr', 'pattern'] as $key) {
+      if ( ! \array_key_exists($key, $like)) {
+        throw new InvalidArgumentException('like benötigt '.$key.'.');
+      }
+    }
+    foreach (['caseSensitive', 'not'] as $key) {
+      if (\array_key_exists($key, $like) && ! \is_bool($like[$key])) {
+        throw new InvalidArgumentException('like '.$key.' muss boolean sein.');
+      }
+    }
+    $like = Dialect::fields($like, ['collation'], $this->context);
+    $collation = $like['collation'] ?? null;
+    if (null !== $collation && (! \is_string($collation) || '' === trim($collation))) {
+      throw new InvalidArgumentException('like collation benötigt einen Kollationsnamen.');
+    }
+    $sensitive = $like['caseSensitive'] ?? null;
+    if ('pgsql' === $this->dialect && true === $sensitive) {
+      $collation ??= 'C';
+      if ( ! \in_array($collation, ['C', 'POSIX'], true)) {
+        throw new InvalidArgumentException('caseSensitive:true benötigt bei PostgreSQL C oder POSIX für eine eindeutige Suche.');
+      }
+    }
+    if (null !== $sensitive && 'pgsql' !== $this->dialect) {
+      if (null === $collation) {
+        throw new InvalidArgumentException('caseSensitive benötigt bei MySQL/SQL Server eine ausdrückliche collation.');
+      }
+      $mode = 'mysql' === $this->dialect
+        ? ($sensitive ? '/_(?:cs|bin)$/iD' : '/_ci$/iD')
+        : ($sensitive ? '/_(?:CS|BIN2?)(?:_|$)/i' : '/_CI(?:_|$)/i');
+      if ( ! preg_match($mode, $collation)) {
+        throw new InvalidArgumentException('collation passt nicht zu caseSensitive; verwende eine passende CI- oder CS/BIN-Kollation.');
+      }
+    }
+    $left = $this->renderExpr($like['expr']);
+    $pattern = $like['pattern'];
+    if (null === $pattern || \is_string($pattern)) {
+      $right = $this->renderLiteral($pattern);
+    } elseif ((\is_array($pattern) && ! self::isList($pattern)) || \is_object($pattern)) {
+      $right = $this->renderExpr($pattern);
+    } else {
+      throw new InvalidArgumentException('like pattern benötigt einen String, NULL oder einen Ausdruck.');
+    }
+    if ('' === trim($left) || '' === trim($right)) {
+      throw new InvalidArgumentException('like expr und pattern dürfen keine leeren Ausdrücke sein.');
+    }
+    if (null !== $collation) {
+      $quoted = Dialect::collation($collation, $this->dialect);
+      $left = 'NULL' === $left ? $left : '('.$left.' COLLATE '.$quoted.')';
+      $right = 'NULL' === $right ? $right : '('.$right.' COLLATE '.$quoted.')';
+    }
+    $operator = 'pgsql' === $this->dialect && false === $sensitive ? 'ILIKE' : 'LIKE';
+    $sql = $left.(! empty($like['not']) ? ' NOT ' : ' ').$operator.' '.$right;
+    if (\array_key_exists('escape', $like)) {
+      $escape = $like['escape'];
+      if ( ! \is_string($escape) || 1 !== strlen($escape) || 0 === ord($escape) || ord($escape) > 127) {
+        throw new InvalidArgumentException('like escape benötigt genau ein ASCII-Zeichen ohne NUL.');
+      }
+      $sql .= ' ESCAPE '.$this->renderLiteral($escape);
+    }
+
+    return $sql;
   }
 
   private function renderOp(mixed $left, string $op, mixed $right): string

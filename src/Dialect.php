@@ -44,6 +44,86 @@ final class Dialect
     };
   }
 
+  /** Resolves explicitly mapped field values without traversing SQL data or expressions. */
+  public static function fields(array $value, array $fields, array $context, array $required = []): array
+  {
+    foreach ($fields as $field) {
+      $map = $value[$field] ?? null;
+      if (\is_object($map)) {
+        $map = get_object_vars($map);
+      }
+      if ( ! \is_array($map) || $map === array_values($map)) {
+        continue;
+      }
+      $normalized = [];
+      foreach ($map as $key => $item) {
+        $key = match (mb_strtolower(trim((string) $key))) {
+          'mysql' => 'mysql',
+          'maria', 'mariadb' => 'mariadb',
+          'sqlsrv', 'sqlserver', 'mssql', 'dblib' => 'sqlsrv',
+          'pgsql', 'postgres', 'postgresql' => 'pgsql',
+          'default' => 'default',
+          default => throw new InvalidArgumentException($field.': unbekannter Dialekt "'.$key.'".')
+        };
+        if (\array_key_exists($key, $normalized) && $normalized[$key] !== $item) {
+          throw new InvalidArgumentException($field.': widersprüchliche Dialektangaben für '.$key.'.');
+        }
+        $normalized[$key] = $item;
+      }
+      $keys = 'mysql' === $context['dialect'] && 'mariadb' === ($context['serverProduct'] ?? null)
+        ? ['mariadb', 'mysql', 'default'] : [$context['dialect'], 'default'];
+      $found = false;
+      $selected = null;
+      foreach ($keys as $key) {
+        if (\array_key_exists($key, $normalized)) {
+          $selected = $normalized[$key];
+          $found = true;
+          break;
+        }
+      }
+      if ( ! $found || (null === $selected && 'default' !== $field)) {
+        if (\in_array($field, $required, true)) {
+          throw new InvalidArgumentException($field.': kein Wert für Dialekt '.$context['dialect'].'.');
+        }
+        unset($value[$field]);
+      } else {
+        if ('enum' !== $field && (\is_array($selected) || \is_object($selected))) {
+          throw new InvalidArgumentException($field.': Dialekt-Map-Werte müssen skalar oder NULL sein.');
+        }
+        $value[$field] = $selected;
+      }
+    }
+
+    return $value;
+  }
+
+  public static function schema(mixed $schema, array $context): ?string
+  {
+    $resolved = self::fields(['schema' => $schema], ['schema'], $context);
+    $schema = $resolved['schema'] ?? null;
+    if (null === $schema || (\is_string($schema) && '' === trim($schema))) {
+      return null;
+    }
+    if ( ! \is_string($schema)) {
+      throw new InvalidArgumentException('schema muss ein String oder eine Dialekt-Map sein.');
+    }
+    self::identifier($schema, $context['dialect']);
+
+    return trim($schema);
+  }
+
+  public static function collation(string $name, string $dialect): string
+  {
+    if ('pgsql' === $dialect) {
+      return self::identifier($name, $dialect);
+    }
+    if ( ! preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/D', $name)) {
+      throw new InvalidArgumentException('collation benötigt einen gültigen Kollationsnamen.');
+    }
+
+    return $name;
+  }
+
   public static function path(string $name, string $dialect): string
   {
     return implode('.', array_map(static fn ($part) => '*' === $part ? '*' : self::identifier($part, $dialect), explode('.', $name)));

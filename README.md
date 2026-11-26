@@ -121,6 +121,77 @@ Leeres `IN []` ergibt `1=0`, leeres `NOT IN []` ergibt `1=1`. Auch `WhereBuilder
 
 `order_by: [{"col":"p.ProductId","dir":"DESC"}]` quotet die Spalte ebenso wie `orderBy(SelectBuilder::col('p.ProductId'), 'DESC')`. `column` ist eine gleichwertige Kurzform für `col`. Für Ausdrücke dient `expr`, beispielsweise `{"expr":{"fn":"lower","args":[{"col":"p.Name"}]},"dir":"ASC"}`. Diese Regeln gelten auch für `union_order_by`. Bestehende Stringausdrücke bleiben SQL.
 
+## Dialektangaben für Felder
+
+Schema und Spaltenoptionen können ihren Wert ausdrücklich je Dialekt erhalten:
+
+```json
+{
+  "type": "create_table",
+  "table": "settings",
+  "schema": {"sqlsrv": "dbo", "pgsql": "public"},
+  "columns": [
+    {"name": "id", "type": "int", "nullable": false, "autoIncrement": {"default": true}},
+    {"name": "ActiveFlag", "type": {"mysql": "boolean", "sqlsrv": "boolean", "pgsql": "smallint"}, "nullable": false, "default": 0},
+    {"name": "Updated", "type": "timestamp", "default": "CURRENT_TIMESTAMP", "onUpdate": {"mysql": "CURRENT_TIMESTAMP"}}
+  ],
+  "primaryKey": ["id"]
+}
+```
+
+Diese Definition wählt für PostgreSQL ausdrücklich numerische Flags. Ein skalares `type:"boolean"` bleibt dort ein nativer BOOLEAN-Typ. Die auf MySQL eingegrenzte Spaltenoption `onUpdate` entfällt in den anderen Dialekten; dort wird kein automatischer Zeitstempel-Trigger erzeugt. Unbedingtes `onUpdate:"CURRENT_TIMESTAMP"` wird für PostgreSQL/SQL Server weiterhin abgelehnt.
+
+- `schema` unterstützt Maps am Builder-Root sowie in SELECT-FROM und SELECT-/DML-Joins.
+- Spalten-Maps sind für `type`, `length`, `precision`, `scale`, `nullable`, `default`, `onUpdate`, `unsigned`, `autoIncrement`, `identity`, `enum`, `raw` und `comment` verfügbar, jeweils innerhalb der schon unterstützten CREATE-/ALTER-Funktionen. `name` bleibt ein gemeinsamer Spaltenname; die vorhandenen SQL-Typ-Overrides `mysql`/`sqlsrv`/`pgsql` bleiben verwendbar.
+- Schlüssel sind `mysql`, `mariadb`, `sqlsrv`, `pgsql`, deren Dialektaliase und optional `default` als Fallback. Bei erkanntem MariaDB-Produkt gilt zuerst `mariadb`, danach `mysql`, danach `default`. Direkte Aufrufe geben dafür `mariadb` beziehungsweise den Produktkontext an; der Renderer erkennt das Produkt über PDO.
+- Ohne passenden Eintrag entfällt eine optionale Eigenschaft. Ein ausgewähltes NULL lässt sie ebenfalls entfallen, außer bei `default`: Dort bedeutet NULL ausdrücklich `DEFAULT NULL`. Ein vorhandener Typ-Map muss einen passenden, nicht leeren Typ liefern; der Builder ersetzt einen fehlenden Eintrag nicht durch VARCHAR.
+- Unbekannte Dialektschlüssel, widersprüchliche Aliase und ungültige ausgewählte Werte sind Fehler. Die Auswahl erfolgt vor Typ-/Optionsprüfung. Datenwerte und beliebige Ausdrucksobjekte werden nicht nach Dialektschlüsseln durchsucht.
+
+Ein skalares `schema:"dbo"` bleibt auch in PostgreSQL ausdrücklich `"dbo"`; es wird nicht entfernt. Soll es nur SQL Server betreffen, verwendet die Definition `schema:{"sqlsrv":"dbo"}`. MySQL behält für skalare Root-Schemaangaben das bisherige Verhalten bei; ein ausdrücklich gewählter MySQL-Eintrag in einer Schema-Map qualifiziert dagegen das Ziel mit dem Datenbanknamen, beispielsweise `schema:{"mysql":"shop_db"}`. Bereits qualifizierte Zielnamen haben Vorrang. Raw-SQL und eingebettete SQL-Texte werden nicht umgeschrieben.
+
+## Ausdrückliche Suchsteuerung
+
+Das Ausdrucksobjekt `like` ist ein Prädikat für WHERE, HAVING, JOIN-Bedingungen und CASE. Bestehende LIKE-Vergleichstripel behalten ihr Serververhalten.
+
+```json
+{
+  "select": [{"col": "Name"}],
+  "from": "products",
+  "where": {
+    "like": {
+      "expr": {"col": "Name"},
+      "pattern": {"param": "term"},
+      "caseSensitive": false,
+      "collation": {"mysql": "utf8mb4_unicode_ci", "sqlsrv": "Latin1_General_100_CI_AS"},
+      "escape": "!"
+    }
+  }
+}
+```
+
+| Einstellung | PostgreSQL | MySQL / SQL Server |
+| --- | --- | --- |
+| `caseSensitive` weglassen | LIKE mit der bestehenden beziehungsweise angegebenen Kollation | LIKE mit der bestehenden beziehungsweise angegebenen Kollation |
+| `caseSensitive:false` | ILIKE; optionale deterministische Kollation | LIKE mit ausdrücklich angegebener CI-Kollation |
+| `caseSensitive:true` | LIKE mit C, alternativ ausdrücklich POSIX | LIKE mit ausdrücklich angegebener CS-/BIN-Kollation |
+
+MySQL/SQL Server verlangen bei gesetztem `caseSensitive` eine passende `collation`; ohne diese Angabe wird die Definition abgelehnt. Beispiele für eine case-sensitive Map: `{"mysql":"utf8mb4_bin","sqlsrv":"Latin1_General_100_BIN2"}`. Die üblichen CI-/CS-/BIN-Kennzeichnungen werden geprüft. PostgreSQL nutzt für ausdrücklich case-sensitive Suche nur C/POSIX; bei ILIKE folgen die Regeln der aktiven Locale und einer gegebenenfalls angegebenen deterministischen Kollation. PostgreSQL-Kollationsnamen werden als einzelne Bezeichner gequotet, ein Punkt etwa in `C.utf8` bleibt Teil des Namens. Kollationen müssen auf dem Server vorhanden und für den Zeichensatz des Textausdrucks geeignet sein. Akzent-, Locale- und weitere Unicode-Regeln werden nicht zwischen den Datenbanken vereinheitlicht. [PostgreSQL LIKE/ILIKE](https://www.postgresql.org/docs/18/functions-matching.html), [MySQL Mustervergleich](https://dev.mysql.com/doc/refman/8.4/en/pattern-matching.html), [SQL Server COLLATE](https://learn.microsoft.com/en-us/sql/t-sql/statements/collations?view=sql-server-ver17).
+
+Ein skalares Stringmuster ist ein Literal, etwa `pattern:"%Öl%"`; Ausdrucksobjekte wie `param`, `value` oder `raw` werden ausdrücklich verarbeitet. `not:true` erzeugt NOT LIKE beziehungsweise NOT ILIKE. `escape` ist genau ein ASCII-Zeichen außer NUL; mit `escape:"!"` bezeichnet `pattern:"literal!_!%"` den Text `literal_%`. Prozent und Unterstrich bleiben sonst Wildcards. Weitere Mustereigenschaften, etwa SQL-Server-Zeichenklassen, bleiben dialektspezifisch. NULL behält die SQL-Semantik und wird bei NOT nicht automatisch zu einem Treffer.
+
+```php
+$options = [
+  'caseSensitive' => false,
+  'collation' => ['mysql' => 'utf8mb4_unicode_ci', 'sqlsrv' => 'Latin1_General_100_CI_AS'],
+];
+$where = (new WhereBuilder())->andLikeParam(SelectBuilder::col('p.Name'), '%Öl%', 'term', $options);
+$query = ['from' => ['table' => 'products', 'as' => 'p'], 'where' => $where->conditions()];
+$sql = SelectBuilder::build($query, $dialect);
+$params = $where->params(); // [':term' => '%Öl%']
+```
+
+`SelectBuilder::like($expr, $pattern, $options)` liefert dasselbe Ausdrucksobjekt. WhereBuilder ergänzt `andLike()`/`orLike()` für Literale oder Ausdrucksmuster und `andLikeParam()`/`orLikeParam()` für separat gebundene Muster. Parameterhelfer nehmen den Namen als drittes, Optionen als viertes Argument; Muster und Platzhalter werden nicht vervielfältigt.
+
 ## Boolean-Defaults und Typ-Overrides
 
 ```php

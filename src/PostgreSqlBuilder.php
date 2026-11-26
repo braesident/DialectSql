@@ -37,6 +37,7 @@ final class PostgreSqlBuilder
     $lines = [];
     $extra = [];
     foreach ($columns as $column) {
+      $column = DefinitionValidator::column($column, 'pgsql');
       $lines[] = self::column($column);
       if (\array_key_exists('comment', $column)) {
         $extra[] = self::columnComment($table, $column);
@@ -98,7 +99,7 @@ final class PostgreSqlBuilder
           if ( ! isset($action['column'])) {
             unset($column['action'], $column['type']);
           }
-          $column = DefinitionValidator::column($column);
+          $column = DefinitionValidator::column($column, 'pgsql');
           if ('add_column' === $type) {
             $statements[] = $prefix.'ADD COLUMN '.self::column($column);
           } else {
@@ -208,7 +209,7 @@ final class PostgreSqlBuilder
 
   private static function column(array $column): string
   {
-    $column = DefinitionValidator::column($column);
+    $column = DefinitionValidator::column($column, 'pgsql');
     $name = self::quote(self::required($column, 'name'));
     if ( ! empty($column['unsigned'])) {
       throw new InvalidArgumentException('PostgreSQL hat kein UNSIGNED; nutze einen passenden Typ mit CHECK.');

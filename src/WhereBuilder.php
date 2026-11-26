@@ -637,6 +637,34 @@ final class WhereBuilder
     return $this;
   }
 
+  /** Adds a LIKE predicate with an explicit literal or expression pattern. */
+  public function andLike(string|array|object $column, mixed $pattern, array $options = []): self
+  {
+    return $this->and(SelectBuilder::like($column, $pattern, $options));
+  }
+
+  public function orLike(string|array|object $column, mixed $pattern, array $options = []): self
+  {
+    $this->appendOrCondition(SelectBuilder::like($column, $pattern, $options));
+
+    return $this;
+  }
+
+  /** Adds a LIKE predicate with one separately bound pattern parameter. */
+  public function andLikeParam(string|array|object $column, mixed $pattern, ?string $name = null, array $options = []): self
+  {
+    $placeholder = $this->registerParam($name, $pattern);
+
+    return $this->andLike($column, ['param' => $placeholder], $options);
+  }
+
+  public function orLikeParam(string|array|object $column, mixed $pattern, ?string $name = null, array $options = []): self
+  {
+    $placeholder = $this->registerParam($name, $pattern);
+
+    return $this->orLike($column, ['param' => $placeholder], $options);
+  }
+
   /**
    * Adds a grouped AND condition.
    *

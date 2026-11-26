@@ -191,8 +191,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "ifNotExists": {
           "type": "boolean"
@@ -238,8 +245,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "replace": {
           "type": "boolean"
@@ -280,8 +294,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "ifExists": {
           "type": "boolean"
@@ -312,8 +333,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "timing": {
           "$ref": "#/$defs/triggerTiming"
@@ -440,8 +468,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "timing": {
           "$ref": "#/$defs/triggerTiming"
@@ -564,8 +599,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "ifExists": {
           "type": "boolean"
@@ -599,8 +641,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "ifExists": {
           "type": "boolean"
@@ -623,8 +672,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "actions": {
           "$ref": "#/$defs/alterActions"
@@ -648,8 +704,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "columns": {
           "$ref": "#/$defs/columnList"
@@ -709,8 +772,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "as": {
           "type": "string",
@@ -772,8 +842,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "as": {
           "type": "string",
@@ -1490,63 +1567,147 @@
           "minLength": 1
         },
         "type": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnTypeMap"
+            }
+          ]
         },
         "length": {
-          "type": "integer",
-          "minimum": 1
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "$ref": "#/$defs/dialectColumnLengthMap"
+            }
+          ]
         },
         "precision": {
-          "type": "integer",
-          "minimum": 1
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "$ref": "#/$defs/dialectColumnPrecisionMap"
+            }
+          ]
         },
         "scale": {
-          "type": "integer",
-          "minimum": 0
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "$ref": "#/$defs/dialectColumnScaleMap"
+            }
+          ]
         },
         "nullable": {
-          "type": "boolean"
-        },
-        "default": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
+          "anyOf": [
             {
               "type": "boolean"
             },
             {
-              "type": "null"
+              "$ref": "#/$defs/dialectColumnNullableMap"
             }
-          ],
-          "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
+          ]
+        },
+        "default": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
+            },
+            {
+              "$ref": "#/$defs/dialectColumnDefaultMap"
+            }
+          ]
         },
         "onUpdate": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnOnUpdateMap"
+            }
+          ]
         },
         "unsigned": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnUnsignedMap"
+            }
+          ]
         },
         "autoIncrement": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnAutoIncrementMap"
+            }
+          ]
         },
         "identity": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnIdentityMap"
+            }
+          ]
         },
         "enum": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "$ref": "#/$defs/dialectColumnEnumMap"
+            }
+          ]
         },
         "raw": {
-          "$ref": "#/$defs/sqlString"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sqlString"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnRawMap"
+            }
+          ]
         },
         "mysql": {
           "$ref": "#/$defs/sqlString"
@@ -1555,7 +1716,14 @@
           "$ref": "#/$defs/sqlString"
         },
         "comment": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnCommentMap"
+            }
+          ]
         },
         "pgsql": {
           "$ref": "#/$defs/sqlString"
@@ -2128,6 +2296,9 @@
         },
         "incoming": {
           "$ref": "#/$defs/upsertColumnName"
+        },
+        "like": {
+          "$ref": "#/$defs/likeExpression"
         }
       }
     },
@@ -2294,7 +2465,14 @@
           "$ref": "#/$defs/columnList"
         },
         "schema": {
-          "$ref": "#/$defs/sqlString"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sqlString"
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         }
       },
       "oneOf": [
@@ -2476,6 +2654,9 @@
         },
         "between": {
           "$ref": "#/$defs/betweenCondition"
+        },
+        "like": {
+          "$ref": "#/$defs/likeExpression"
         }
       }
     },
@@ -2509,63 +2690,147 @@
           "minLength": 1
         },
         "type": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnTypeMap"
+            }
+          ]
         },
         "length": {
-          "type": "integer",
-          "minimum": 1
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "$ref": "#/$defs/dialectColumnLengthMap"
+            }
+          ]
         },
         "precision": {
-          "type": "integer",
-          "minimum": 1
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "$ref": "#/$defs/dialectColumnPrecisionMap"
+            }
+          ]
         },
         "scale": {
-          "type": "integer",
-          "minimum": 0
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "$ref": "#/$defs/dialectColumnScaleMap"
+            }
+          ]
         },
         "nullable": {
-          "type": "boolean"
-        },
-        "default": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
+          "anyOf": [
             {
               "type": "boolean"
             },
             {
-              "type": "null"
+              "$ref": "#/$defs/dialectColumnNullableMap"
             }
-          ],
-          "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
+          ]
+        },
+        "default": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
+            },
+            {
+              "$ref": "#/$defs/dialectColumnDefaultMap"
+            }
+          ]
         },
         "onUpdate": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnOnUpdateMap"
+            }
+          ]
         },
         "unsigned": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnUnsignedMap"
+            }
+          ]
         },
         "autoIncrement": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnAutoIncrementMap"
+            }
+          ]
         },
         "identity": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnIdentityMap"
+            }
+          ]
         },
         "enum": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "$ref": "#/$defs/dialectColumnEnumMap"
+            }
+          ]
         },
         "raw": {
-          "$ref": "#/$defs/sqlString"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sqlString"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnRawMap"
+            }
+          ]
         },
         "mysql": {
           "$ref": "#/$defs/sqlString"
@@ -2574,7 +2839,14 @@
           "$ref": "#/$defs/sqlString"
         },
         "comment": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/dialectColumnCommentMap"
+            }
+          ]
         },
         "pgsql": {
           "$ref": "#/$defs/sqlString"
@@ -2684,8 +2956,15 @@
           "minLength": 1
         },
         "schema": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/dialectSchemaMap"
+            }
+          ]
         },
         "columns": {
           "$ref": "#/$defs/columnList"
@@ -2747,6 +3026,347 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^(?!\\*$)(?=.*\\S)[^.]+$"
+    },
+    "dialectSchemaMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnTypeMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^((tiny|small|big)?int|integer|bool|boolean|(tiny|long|medium)?text|string|varchar|nvarchar|char|(tiny|medium|long)?blob|binary|varbinary|bytea|json|jsonb|datetime|timestamp|timestamptz|date|time|decimal|numeric|float|real|double|uuid)$"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnLengthMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnPrecisionMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnScaleMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 0
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnNullableMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnDefaultMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnOnUpdateMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnUnsignedMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnAutoIncrementMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnIdentityMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnEnumMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnRawMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/sqlString"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectColumnCommentMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "dialectCollationMap": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/dialectFieldKey"
+      }
+    },
+    "likeExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expr": {
+          "$ref": "#/$defs/selectExpr"
+        },
+        "pattern": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/selectExprObject"
+            }
+          ]
+        },
+        "caseSensitive": {
+          "type": "boolean"
+        },
+        "collation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/dialectCollationMap"
+            }
+          ]
+        },
+        "not": {
+          "type": "boolean"
+        },
+        "escape": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "pattern": "^[\\u0001-\\u007f]$"
+        }
+      },
+      "required": [
+        "expr",
+        "pattern"
+      ],
+      "description": "Explizite LIKE-Suche. Stringmuster sind Literale. MySQL/SQL Server verlangen bei caseSensitive eine passende CI- bzw. CS/BIN-Kollation; PostgreSQL nutzt ILIKE bzw. LIKE mit C/POSIX."
+    },
+    "dialectFieldKey": {
+      "enum": [
+        "mysql",
+        "maria",
+        "mariadb",
+        "sqlsrv",
+        "sqlserver",
+        "mssql",
+        "dblib",
+        "pgsql",
+        "postgres",
+        "postgresql",
+        "default"
+      ]
     }
   }
 }

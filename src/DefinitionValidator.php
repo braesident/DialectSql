@@ -101,9 +101,21 @@ final class DefinitionValidator
     return $definition;
   }
 
-  public static function column(array $column): array
+  public static function column(array $column, string|array $dialect = 'mysql'): array
   {
     $column = self::normalize($column, ['name', 'type', 'length', 'precision', 'scale', 'nullable', 'default', 'onUpdate', 'unsigned', 'autoIncrement', 'identity', 'enum', 'raw', 'mysql', 'sqlsrv', 'pgsql', 'postgres', 'postgresql', 'comment'], 'Spalte');
+    $column = Dialect::fields($column, ['type', 'length', 'precision', 'scale', 'nullable', 'default', 'onUpdate', 'unsigned', 'autoIncrement', 'identity', 'enum', 'raw', 'comment'], Dialect::context($dialect), ['type']);
+    if (\array_key_exists('type', $column) && (! \is_string($column['type']) || '' === trim($column['type']))) {
+      throw new InvalidArgumentException('Spaltentyp muss ein nicht leerer String sein.');
+    }
+    foreach (['raw', 'mysql', 'sqlsrv', 'pgsql', 'postgres', 'postgresql', 'comment'] as $key) {
+      if (isset($column[$key]) && ! \is_string($column[$key])) {
+        throw new InvalidArgumentException($key.' muss ein String sein.');
+      }
+    }
+    if (isset($column['onUpdate']) && false !== $column['onUpdate'] && ! \is_string($column['onUpdate'])) {
+      throw new InvalidArgumentException('onUpdate muss ein String sein.');
+    }
     foreach (['nullable', 'unsigned', 'autoIncrement', 'identity'] as $key) {
       if (\array_key_exists($key, $column) && ! \is_bool($column[$key])) {
         throw new InvalidArgumentException($key.' muss boolean sein.');

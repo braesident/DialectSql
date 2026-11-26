@@ -32,7 +32,7 @@ Syntaxgrundlagen: [MySQL SELECT](https://dev.mysql.com/doc/refman/8.4/en/select.
 | DISTINCT | Ja | Ja | Ja | `{"distinct":true}`; `distinct()`. |
 | SELECT ALL | Teil | Teil | Teil | Standardverhalten ohne `distinct`; kein ausdrückliches `all`-Feld. |
 | DISTINCT ON | — | — | Offen | PostgreSQL-spezifische Auswahl je Gruppe; keine gemeinsame API. |
-| FROM Tabelle / View | Ja | Ja | Ja | `{"from":"products"}` oder `{"from":{"table":"products","schema":"shop"}}`. |
+| FROM Tabelle / View | Ja | Ja | Ja | `{"from":"products"}` oder `{"from":{"table":"products","schema":{"sqlsrv":"dbo","pgsql":"public"}}}`; Schema-Maps gelten auch in Joins. |
 | FROM Unterabfrage | Ja | Ja | Ja | `{"from":{"query":{"select":"id","from":"products"},"as":"p"}}`; Alias angeben. |
 | Mehrere FROM-Quellen | Offen | Offen | Offen | Kein strukturiertes FROM-Array; Raw-Quelle oder spätere Cross-Join-API. |
 | INNER JOIN / JOIN ON | Ja | Ja | Ja | `{"join":[{"table":"stock","as":"s","on":["p.id","=","s.product_id"]}]}`. |
@@ -139,8 +139,8 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | EXISTS / NOT EXISTS | Ja | Ja | Ja | `{"exists":{"select":{"value":1},"from":"stock"}}` / `not_exists`. |
 | IS NULL / IS NOT NULL | Ja | Ja | Ja | `{"is_null":"deleted_at"}` / `is_not_null`; Vergleiche `= null`, `!= null`, `<> null` oder mit `value:null` werden ebenfalls umgeschrieben. |
 | BETWEEN / NOT BETWEEN | Ja | Ja | Ja | `{"between":{"expr":"price","min":10,"max":20,"not":true}}`. |
-| LIKE / NOT LIKE | Teil | Teil | Teil | Vergleichstripel mit `LIKE` und Literal; keine gemeinsame ESCAPE-/Kollationssteuerung. |
-| ILIKE | — | — | Teil | `["name","ILIKE",{"value":"a%"}]`; generischer Operator, keine Übersetzung für andere Dialekte. |
+| LIKE / NOT LIKE | Ja | Ja | Ja | `{"like":{"expr":{"col":"Name"},"pattern":{"param":"term"},"caseSensitive":false,"collation":{"mysql":"utf8mb4_unicode_ci","sqlsrv":"Latin1_General_100_CI_AS"},"escape":"!"}}`; optional `not:true`. Explizite Fallsteuerung benötigt bei MySQL/SQL Server passende Kollationen; PostgreSQL nutzt ILIKE bzw. C/POSIX. Bestehende Vergleichstripel bleiben unverändert. [Suchsteuerung](README.md#ausdrückliche-suchsteuerung). |
+| ILIKE | — | — | Ja | Über `like.caseSensitive:false` strukturiert verfügbar. Dieselbe Absicht nutzt in MySQL/SQL Server LIKE mit ausdrücklich gewählter CI-Kollation. Direkte generische ILIKE-Operatoren bleiben PostgreSQL-Syntax. |
 | REGEXP / RLIKE / ~ / !~ | Teil | — | Teil | Generische Operatoren oder raw; Syntax, Flags und Regex-Engines unterscheiden sich. |
 | NULL-sicherer Vergleich `<=>` / IS [NOT] DISTINCT FROM | Teil | Teil | Teil | Nur expliziter Operator/raw; keine portable Abbildung; SQL-Server-Unterstützung versionsabhängig. |
 | ANY / SOME / ALL | Teil | Teil | Teil | Rechtsausdruck ausdrücklich über raw; keine eigene Quantoren-Struktur. |
@@ -149,7 +149,7 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | Zeichenkettenverkettung | Teil | Teil | Teil | `fn:"concat"` generisch; NULL-Verhalten unterscheidet sich. `\|\|` ist keine allgemeine MySQL-Verkettung. |
 | CASE WHEN / THEN / ELSE / END | Ja | Ja | Ja | `{"case":{"when":[{"cond":["id",">",0],"then":{"value":"ja"}}],"else":{"value":"nein"}}}`. |
 | CAST / CONVERT / Typcasts :: | Teil | Teil | Teil | Spezialsyntax nur raw; `fn:"cast"` mit normalen Argumenten bildet `CAST(x AS type)` nicht ab. |
-| COLLATE | Teil | Teil | Teil | Als Raw-Ausdruck möglich; Kollationsnamen sind dialektspezifisch. |
+| COLLATE | Teil | Teil | Teil | `like.collation` unterstützt Namen und Dialekt-Maps; Namen werden geprüft beziehungsweise gequotet. Allgemeine COLLATE-Ausdrücke außerhalb von LIKE bleiben raw. Kollationen, Zeichensatz und Locale sind zielserverspezifisch. |
 | Skalare Unterabfrage | Ja | Ja | Ja | `{"query":{"select":{"fn":"max","args":["id"]},"from":"products"}}`. |
 | Zeilen-/Tupelvergleiche | Offen | Teil | Offen | Keine Tupel-AST; SQL Server hat nur Teilentsprechungen. |
 | Boolesche Literale | Ja | Ja | Ja | PHP/JSON `true`/`false`: MySQL/SQL Server `1`/`0`, PostgreSQL `TRUE`/`FALSE`. |
@@ -252,7 +252,7 @@ DDL-Grundlagen: [MySQL DDL](https://dev.mysql.com/doc/refman/8.4/en/sql-data-def
 | UNSIGNED | Ja | — | — | `unsigned:true`; PostgreSQL und SQL Server lehnen das Flag ausdrücklich ab. |
 | ENUM-Wertebereich | Ja | Ja | Ja | `enum:["neu","aktiv"]`; MySQL ENUM, SQL Server NVARCHAR+CHECK, PostgreSQL VARCHAR+CHECK. Kein PostgreSQL CREATE TYPE. |
 | Enum ändern | Teil | Teil | Offen | MySQL vollständige Spalte; SQL Server Constraint-Verwaltung begrenzt. PostgreSQL modify_column mit enum wird abgelehnt. |
-| ON UPDATE CURRENT_TIMESTAMP | Ja | — | — | Spaltenfeld `onUpdate`; PostgreSQL und SQL Server benötigen explizite Logik und lehnen das Feld ab. |
+| ON UPDATE CURRENT_TIMESTAMP | Ja | — | — | Spaltenfeld `onUpdate:{"mysql":"CURRENT_TIMESTAMP"}` grenzt die Option ausdrücklich ein. Unbedingte Angaben werden in PostgreSQL/SQL Server weiter abgelehnt; keine automatische Trigger-Emulation. |
 | Spaltenkommentar | Ja | Ja | Ja | `comment:"Beschreibung"` bei CREATE; MySQL inline, SQL Server Extended Property, PostgreSQL COMMENT ON. |
 | Kommentar bei ALTER ändern | Teil | Offen | Ja | PostgreSQL add/modify erzeugt COMMENT ON; MySQL modify inline, SQL-Server-ALTER aktuell ohne Kommentarweitergabe. |
 | Tabellen-/Index-/Constraint-Kommentare | Offen | Offen | Offen | Keine gemeinsame Kommentar-API für diese Objekte. |
@@ -314,6 +314,8 @@ PostgreSQL-Triggerbeispiel (die Funktion `audit.record_change()` muss bereits ex
 Ausgabe: `CREATE TRIGGER "trg_products_audit" AFTER INSERT OR UPDATE ON "shop"."products" FOR EACH ROW EXECUTE PROCEDURE "audit"."record_change"('products')`. `EXECUTE PROCEDURE` bezeichnet hier eine Triggerfunktion und wurde für Kompatibilität mit PostgreSQL 10 gewählt; neuere Server akzeptieren diese Syntax weiterhin. Ein `body` wird nicht automatisch in PL/pgSQL übersetzt. [PostgreSQL CREATE TRIGGER](https://www.postgresql.org/docs/18/sql-createtrigger.html), [PostgreSQL 10 CREATE TRIGGER](https://www.postgresql.org/docs/10/sql-createtrigger.html).
 
 ## 7. Datentypen und Abbildungen
+
+Schema- und Spaltenoptionen können je Dialekt gewählt werden, etwa `schema:{"sqlsrv":"dbo","pgsql":"public"}` oder `type:{"mysql":"boolean","sqlsrv":"boolean","pgsql":"smallint"}`. Fehlende optionale Einträge entfallen; `default:null` innerhalb eines ausgewählten Eintrags bleibt DEFAULT NULL. Typ-Maps verlangen einen passenden Wert. MariaDB hat Vorrang vor MySQL und `default`. Unbekannte Schlüssel und widersprüchliche Aliase sind Fehler. Ein ausdrücklicher MySQL-Schema-Map-Eintrag qualifiziert das Ziel mit dem Datenbanknamen; skalare Root-Schemaangaben behalten ihr bisheriges Verhalten. [Feld-Maps und Grenzen](README.md#dialektangaben-für-felder).
 
 Diese Tabelle bezieht sich auf Spaltendefinitionen in CREATE/ALTER. Typnamen werden nur im hier angegebenen Umfang abgebildet. Ein abweichender Typ kann ausdrücklich über ein Dialektfeld wie `pgsql:"INET"` oder `raw` vorgegeben werden. Das ersetzt keine automatische Werte- oder Semantikübersetzung.
 
@@ -454,6 +456,7 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 
 | Status / Priorität | Aufgabe | Begründung / Ziel |
 | --- | --- | --- |
+| Vorbereitet / Hoch | Schema-/Spalten-Maps und Suchsteuerung auf den Testservern ausführen | Neue Tests prüfen eigene Namespaces, DDL/DML, Flags, ON-UPDATE-Eingrenzung, Fallsteuerung, Kollationen, ESCAPE, Unicode und NULL. Ohne konfigurierte Test-DSNs ist kein Servererfolg nachgewiesen. [Serverfälle](tests/integration-options.php). |
 | Vorbereitet / Hoch | Typisierte Defaults und Ausdrucksargumente gegen alle drei Server prüfen | Separate Integrationstests prüfen CREATE/ADD-Defaults, numerische Typ-Overrides, typisiertes MODIFY bei MySQL/PostgreSQL sowie gemischte Groß-/Kleinschreibung in WHERE, ORDER BY und globaler UNION-Sortierung. Ohne Test-DSNs bleiben diese Läufe ausstehend. [Testfälle](tests/integration-portability.php). |
 | Teilweise geprüft / Hoch | MySQL-Upsert-Korrektur im CI prüfen | Im GitHub-Lauf vom 26.11.2026 waren beide Unit-Jobs und die SQL-Server-/PostgreSQL-Integration erfolgreich. MySQL meldete Fehler 1052 bei einer unqualifizierten Bestandsreferenz. Der Builder qualifiziert diese nun mit der Zieltabelle; die Korrektur und zusätzliche Funktionen-/CASE-Fälle benötigen einen neuen Serverlauf. [Teststand und Anleitung](tests/README.md). |
 | Erledigt | MySQL OFFSET ohne LIMIT | Ersatzwert wird als SQL-String erzeugt, ohne PHP-Integerüberlauf. |
@@ -462,6 +465,7 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 | Erledigt | SELECT JOIN USING für SQL Server | Wird mit Verweis auf ON abgelehnt. |
 | Erledigt | Globale UNION-Sortierung und -Paginierung | `union_order_by`, `union_limit`, `union_offset` bzw. fluente Methoden ergänzen die bisherigen Teilabfragefelder. |
 | Erledigt | Native PostgreSQL-Boolean-Defaults und explizite Spaltenausdrücke | Numerische Boolean-Defaults werden nach dem effektiven Spaltentyp normalisiert. ORDER BY erhält `col`-/`column`-Referenzen; WhereBuilder akzeptiert Ausdrucksarrays/-objekte durchgängig. [Regressionstests](tests/portability.php). |
+| Erledigt | Ausdrückliche Dialektfelder und Suchsteuerung | Schema-/Spalten-Maps sowie LIKE-Prädikate mit caseSensitive, Kollations-Maps, NOT und ESCAPE sind vorhanden. Keine implizite Sucheinstellung, Unicode-Normalisierung oder ON-UPDATE-Emulation. [Übersetzungs-/Fehlertests](tests/dialect-options.php). |
 | Erledigt | Gemeinsame Upsert-API mit expliziten Dialektgrenzen | VALUES-Upserts, zusammengesetzte Schlüssel, Incoming-/Bestandswerte, Parameter und Zielspalten-Rückgaben sind vorhanden. MySQLs abweichende Konfliktregeln verlangen `mysqlConflict:"any_unique"`; NULL-/Schlüsseländerungen und bekannte doppelte Quellschlüssel werden abgelehnt. |
 | Offen / Mittel | Weitere Konflikt- und Rückgabefunktionen | DO NOTHING, INSERT-SELECT-Upserts, bedingte Konfliktupdates, allgemeines MERGE, OUTPUT INTO und komplexere Rückgabeausdrücke nach Bedarf ergänzen; Unterschiede ausdrücklich definieren. |
 | Teilweise / Mittel | CTEs, weitere Set-Operatoren und Fensterfunktionen | SELECT-CTEs einschließlich Rekursion sind vorhanden; eigene DML-CTEs, INTERSECT/EXCEPT und Fenster-AST bleiben offen. |
