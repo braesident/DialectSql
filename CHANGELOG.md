@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-26 – 1.0.3
+
+- Dialekt-Maps für Schema und Spaltenoptionen mit Alias-/Fallback-Auflösung, MariaDB-Vorrang und ausdrücklicher NULL-Semantik ergänzt; Schema-Maps gelten in DDL, DML und Abfragequellen.
+- Strukturierte LIKE-Suche mit ausdrücklicher Groß-/Kleinschreibung, Dialekt-Kollationen, NOT und ESCAPE sowie gebundenen WhereBuilder-Mustern ergänzt.
+- Übersetzungs-/Fehlertests und separate Serverfälle für Schema-/Spalten-Maps, isolierte Namespaces, Suchkollationen, Unicode und NULL ergänzt.
+- PostgreSQL-Boolean-Defaults anhand des effektiven Spaltentyps normalisiert; CREATE/ADD und typisiertes MODIFY unterstützen 0/1 und gültige Boolean-Strings, während numerische Typ-Overrides numerisch bleiben.
+- Explizite col-/column-Referenzen in ORDER BY und globaler UNION-Sortierung bleiben erhalten und werden dialektgerecht gequotet.
+- WhereBuilder unterstützt Ausdrucksarrays und -objekte in allen 54 Spaltenmethoden einschließlich Vergleichs-/Parameteraliasen und IN; bestehende Stringausdrücke bleiben kompatibel.
+- Serverfreie Regressionstests und separate Integrationstests für typisierte Defaults und Spaltenausdrücke ergänzt.
+
 ## 2026-11-26 – 1.0.2
 
 - MySQL-Upserts qualifizieren Bestandsreferenzen mit der Zieltabelle und vermeiden dadurch Fehler 1052 bei gleichnamigen Eingabespalten; Datenbankqualifizierung, Bezeichnerquoting sowie verschachtelte Funktionen und CASE werden durch Regressionstests abgedeckt.
