@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased – 1.0.0
+## 2026-11-26 – 1.0.2
+
+- MySQL-Upserts qualifizieren Bestandsreferenzen mit der Zieltabelle und vermeiden dadurch Fehler 1052 bei gleichnamigen Eingabespalten; Datenbankqualifizierung, Bezeichnerquoting sowie verschachtelte Funktionen und CASE werden durch Regressionstests abgedeckt.
 
 - Gemeinsame Upsert-API mit conflictColumns, ausdrücklichem SET, Incoming-/Bestandswerten, Parameterunterstützung und PostgreSQL-/SQL-Server-Rückgaben ergänzt.
 - MySQL/MariaDB verwenden ausdrücklich gewähltes any_unique-Verhalten; PostgreSQL nutzt ON CONFLICT, SQL Server die Upsert-Teilmenge von MERGE mit HOLDLOCK. Mehrzeilen-, Schlüssel- und Grenzfälle sind durch Regressionstests und neue Integrationstests erfasst.
