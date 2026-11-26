@@ -37,6 +37,7 @@ final class SqlBuilder
       'drop_trigger'   => self::buildDropTrigger($normalized, $dialect),
       'alter_table'  => self::buildAlterTable($normalized, $dialect, $context),
       'insert'       => self::buildInsert($normalized, $dialect, $context),
+      'upsert'       => self::buildUpsert($normalized, $dialect, $context),
       'update'       => self::buildUpdate($normalized, $dialect, $context),
       'delete'       => self::buildDelete($normalized, $dialect, $context),
       'raw'          => self::buildRaw($normalized, $dialect),
@@ -1450,7 +1451,186 @@ final class SqlBuilder
 
     $columnsSql = [] !== $columnList ? self::quoteColumnList(array_map('strval', $columnList), $dialect) : '';
 
-    return [$columnsSql, $rows];
+    return [$columnsSql, $rows, array_map('strval', $columnList)];
+  }
+
+  private static function buildUpsert(array $definition, string $dialect, array $context): string
+  {
+    $table = $definition['table'] ?? null;
+    if ( ! \is_string($table) || '' === trim($table)) {
+      throw new InvalidArgumentException('upsert benötigt "table".');
+    }
+    if (\array_key_exists('values', $definition) && \array_key_exists('rows', $definition)) {
+      throw new InvalidArgumentException('upsert darf nicht gleichzeitig values und rows enthalten.');
+    }
+    $values = $definition['values'] ?? $definition['rows'] ?? null;
+    if ( ! \is_array($values) || [] === $values) {
+      throw new InvalidArgumentException('upsert benötigt nicht leere values/rows.');
+    }
+    if ( ! self::isList($values) || (! \is_array($values[0]) && ! \is_object($values[0]))) {
+      $values = [$values];
+    }
+    $columns = $definition['columns'] ?? null;
+    if (null !== $columns && (! \is_array($columns) || ! self::isList($columns) || [] === $columns)) {
+      throw new InvalidArgumentException('upsert columns muss eine nicht leere Liste sein.');
+    }
+    if (null !== $columns) {
+      self::validateUpsertColumns($columns, 'columns', $dialect);
+    }
+    [$columnsSql, $rows, $columns] = self::normalizeInsertRows($columns, $values, $context);
+    self::validateUpsertColumns($columns, 'columns', $dialect);
+    $conflict = $definition['conflictColumns'] ?? null;
+    if ( ! \is_array($conflict) || ! self::isList($conflict) || [] === $conflict) {
+      throw new InvalidArgumentException('upsert benötigt nicht leere conflictColumns.');
+    }
+    self::validateUpsertColumns($conflict, 'conflictColumns', $dialect);
+    foreach ($conflict as $column) {
+      if ( ! \in_array($column, $columns, true)) {
+        throw new InvalidArgumentException('upsert conflictColumns fehlen in values: '.$column);
+      }
+    }
+    self::validateUpsertRows($rows, $columns, $conflict);
+    if (\array_key_exists('mysqlConflict', $definition) && 'any_unique' !== $definition['mysqlConflict']) {
+      throw new InvalidArgumentException('mysqlConflict unterstützt nur "any_unique".');
+    }
+    if ('mysql' === $dialect && 'any_unique' !== ($definition['mysqlConflict'] ?? null)) {
+      throw new InvalidArgumentException('MySQL kann conflictColumns nicht als Konfliktziel erzwingen; setze mysqlConflict="any_unique" ausdrücklich.');
+    }
+    if ( ! isset($definition['set']) || ! \is_array($definition['set'])) {
+      throw new InvalidArgumentException('upsert benötigt set als Objekt oder Zuweisungsliste.');
+    }
+    $assignments = self::normalizeUpdateSet($definition['set']);
+    if ([] === $assignments) {
+      throw new InvalidArgumentException('upsert benötigt nicht leere set-Zuweisungen.');
+    }
+    $setColumns = array_column($assignments, 0);
+    self::validateUpsertColumns($setColumns, 'set', $dialect);
+    $compare = static fn ($column) => 'pgsql' === $dialect ? $column : mb_strtolower($column);
+    if ([] !== array_intersect(array_map($compare, $setColumns), array_map($compare, $conflict))) {
+      throw new InvalidArgumentException('upsert set darf conflictColumns nicht ändern.');
+    }
+
+    $sourceAlias = '__dialectsql_incoming';
+    $targetAlias = '__dialectsql_target';
+    $parts = explode('.', $table);
+    $baseName = (string) end($parts);
+    while (0 === strcasecmp($sourceAlias, $baseName)) {
+      $sourceAlias .= '_';
+    }
+    $version = (int) ($context['serverVersionId'] ?? 0);
+    $mysqlValues = 'mysql' === $dialect && ('mariadb' === ($context['serverProduct'] ?? '') || (0 !== $version && $version < 80019));
+    $upsertContext = $context;
+    $upsertContext['upsert'] = [
+      'columns' => $columns,
+      'source' => 'pgsql' === $dialect ? 'excluded' : $sourceAlias,
+      'target' => 'mysql' === $dialect ? null : $targetAlias,
+      'mysqlValues' => $mysqlValues
+    ];
+    $set = [];
+    foreach ($assignments as [$column, $value]) {
+      $set[] = self::quoteColumn($column, $dialect).' = '.self::formatDmlValue($value, $dialect, $upsertContext);
+    }
+    $rowSql = [];
+    foreach ($rows as $row) {
+      $rowSql[] = '('.implode(', ', array_map(static fn ($value) => self::formatDmlValue($value, $dialect, $context), $row)).')';
+    }
+    $tableRef = self::dmlTable($table, $dialect, $definition['schema'] ?? null);
+    $returning = self::buildReturning($definition, $dialect, 'upsert');
+    $valuesSql = implode(', ', $rowSql);
+    if ('sqlsrv' === $dialect) {
+      $target = self::quoteColumn($targetAlias, $dialect);
+      $source = self::quoteColumn($sourceAlias, $dialect);
+      $on = [];
+      foreach ($conflict as $column) {
+        $quoted = self::quoteColumn($column, $dialect);
+        $on[] = $target.'.'.$quoted.' = '.$source.'.'.$quoted;
+      }
+      $insertValues = array_map(static fn ($column) => $source.'.'.self::quoteColumn($column, $dialect), $columns);
+
+      return 'MERGE INTO '.$tableRef.' WITH (HOLDLOCK) AS '.$target
+        .' USING (VALUES '.$valuesSql.') AS '.$source.' ('.$columnsSql.')'
+        .' ON '.implode(' AND ', $on)
+        .' WHEN MATCHED THEN UPDATE SET '.implode(', ', $set)
+        .' WHEN NOT MATCHED THEN INSERT ('.$columnsSql.') VALUES ('.implode(', ', $insertValues).')'
+        .$returning.';';
+    }
+    $sql = 'INSERT INTO '.$tableRef;
+    if ('pgsql' === $dialect) {
+      $sql .= ' AS '.self::quoteColumn($targetAlias, $dialect);
+    }
+    $sql .= ' ('.$columnsSql.') VALUES '.$valuesSql;
+    if ('pgsql' === $dialect) {
+      return $sql.' ON CONFLICT ('.self::quoteColumnList($conflict, $dialect).') DO UPDATE SET '.implode(', ', $set).$returning;
+    }
+    if ( ! $mysqlValues) {
+      $sql .= ' AS '.self::quoteColumn($sourceAlias, $dialect);
+    }
+
+    return $sql.' ON DUPLICATE KEY UPDATE '.implode(', ', $set);
+  }
+
+  private static function validateUpsertColumns(array $columns, string $label, string $dialect): void
+  {
+    $seen = [];
+    foreach ($columns as $column) {
+      if ( ! \is_string($column) || '' === trim($column) || '*' === $column || str_contains($column, '.')) {
+        throw new InvalidArgumentException('upsert '.$label.' benötigt unqualifizierte Spaltennamen.');
+      }
+      Dialect::identifier($column, 'pgsql');
+      $key = 'pgsql' === $dialect ? $column : mb_strtolower($column);
+      if (\in_array($key, $seen, true)) {
+        throw new InvalidArgumentException('upsert '.$label.' enthält doppelte Spalten: '.$column);
+      }
+      $seen[] = $key;
+    }
+  }
+
+  private static function validateUpsertRows(array $rows, array $columns, array $conflict): void
+  {
+    $seen = [];
+    foreach ($rows as $row) {
+      foreach ($row as $value) {
+        $value = self::unwrapUpsertLiteral($value);
+        if ([] === $value) {
+          throw new InvalidArgumentException('upsert values darf keine leeren Ausdrücke enthalten.');
+        }
+        if (\is_array($value) && true === ($value['default'] ?? false)) {
+          throw new InvalidArgumentException('upsert values unterstützt kein DEFAULT; lasse Standardspalten weg.');
+        }
+      }
+      $tuple = [];
+      $known = true;
+      foreach ($conflict as $column) {
+        $value = self::unwrapUpsertLiteral($row[array_search($column, $columns, true)]);
+        if (null === $value) {
+          throw new InvalidArgumentException('upsert conflictColumns dürfen keine NULL-Werte enthalten.');
+        }
+        $known = $known && \is_scalar($value);
+        $tuple[] = $value;
+      }
+      if ($known) {
+        $key = serialize($tuple);
+        if (isset($seen[$key])) {
+          throw new InvalidArgumentException('upsert values enthält doppelte Konfliktschlüssel.');
+        }
+        $seen[$key] = true;
+      }
+    }
+  }
+
+  private static function unwrapUpsertLiteral(mixed $value): mixed
+  {
+    while (\is_array($value)) {
+      foreach (['value', 'val', 'literal', 'lit'] as $key) {
+        if (\array_key_exists($key, $value)) {
+          $value = $value[$key];
+          continue 2;
+        }
+      }
+      break;
+    }
+
+    return $value;
   }
 
   private static function formatDmlValue(mixed $value, string $dialect, array $context): string
@@ -1464,6 +1644,9 @@ final class SqlBuilder
     }
 
     if (\is_array($value)) {
+      if ([] === $value && isset($context['upsert'])) {
+        throw new InvalidArgumentException('upsert set darf keine leeren Ausdrücke enthalten.');
+      }
       foreach (['value', 'val', 'literal', 'lit'] as $key) {
         if (\array_key_exists($key, $value)) {
           return self::formatDmlValue($value[$key], $dialect, $context);
@@ -1471,6 +1654,9 @@ final class SqlBuilder
       }
 
       if (isset($value['default']) && true === $value['default']) {
+        if (isset($context['upsert'])) {
+          throw new InvalidArgumentException('upsert set unterstützt kein DEFAULT.');
+        }
         return 'DEFAULT';
       }
 
@@ -1479,6 +1665,9 @@ final class SqlBuilder
       }
 
       if (isset($value['query'])) {
+        if (isset($context['upsert'])) {
+          throw new InvalidArgumentException('upsert set unterstützt keine Unterabfragen; nutze ausdrücklich raw.');
+        }
         $sql = SelectBuilder::build($value['query'], $context);
 
         return '('.$sql.')';
@@ -1495,6 +1684,9 @@ final class SqlBuilder
       }
 
       if ($looksLikeQuery) {
+        if (isset($context['upsert'])) {
+          throw new InvalidArgumentException('upsert set unterstützt keine Unterabfragen; nutze ausdrücklich raw.');
+        }
         $sql = SelectBuilder::build($value, $context);
 
         return '('.$sql.')';

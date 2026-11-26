@@ -1,6 +1,6 @@
 # SQL-Funktionsmatrix und Projektliste
 
-Stand: 20.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des PostgreSQL-Dialekts, der Eingabeprüfung und der neuen SELECT-/DML-Funktionen. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
+Stand: 24.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des PostgreSQL-Dialekts, der Eingabeprüfung und der SELECT-/DML-/Upsert-Funktionen. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
 
 Die Liste deckt die üblichen Abfragen, Datenänderungen, Schemaänderungen, Datentypen, Transaktionen sowie größere Verwaltungsbereiche ab. Sie ist kein vollständiger Katalog sämtlicher Herstellerfunktionen, Serveroptionen, Erweiterungen oder versionsabhängiger Schlüsselwörter. Seltene Verwaltungsbefehle sind teilweise als Befehlsfamilie zusammengefasst.
 
@@ -154,27 +154,30 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | Zeilen-/Tupelvergleiche | Offen | Teil | Offen | Keine Tupel-AST; SQL Server hat nur Teilentsprechungen. |
 | Boolesche Literale | Ja | Ja | Ja | PHP/JSON `true`/`false`: MySQL/SQL Server `1`/`0`, PostgreSQL `TRUE`/`FALSE`. |
 | PDO-Platzhalter | Ja | Ja | Ja | `{"param":"id"}` / `SelectBuilder::param('id')`; Parameternamen werden geprüft. Bestehendes `{"raw":":id"}` bleibt möglich; Werte separat binden. |
+| Upsert-Eingabewert / Bestandswert | Ja | Ja | Ja | Nur im Upsert-SET: `{"incoming":"stock"}` / `SelectBuilder::incoming('stock')` bezeichnet den Eingabewert, `{"col":"stock"}` den vorhandenen Wert. Verschachtelte Ausdrücke, Funktionen und CASE sind möglich. |
 | WhereBuilder + Parameterlisten | Ja | Ja | Ja | `andEqualsParam()`, `andIn()`, `orIn()`, `conditions()`, `params()`; erzeugt keine eigene Verbindung. |
 
 Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder Funktionsname auf dem Zielserver existiert. Syntaxübernahme ist daher nur **Teil**-Unterstützung und keine Dialektübersetzung.
 
-## 4. INSERT, UPDATE und DELETE
+## 4. INSERT, UPDATE, DELETE und Upsert
 
 | Befehl / Variante | MySQL | SQL Server | PostgreSQL | Anwendung / gemeinsame Umsetzung / Grenze |
 | --- | --- | --- | --- | --- |
 | INSERT INTO ... VALUES | Ja | Ja | Ja | `{"type":"insert","table":"products","values":[{"name":"Öl","active":true}]}`. |
 | Mehrzeilen-INSERT | Ja | Ja | Ja | `columns:["id","name"], values:[[1,"A"],[2,"B"]]` oder Objektzeilen. |
 | INSERT ... SELECT | Ja | Ja | Ja | `columns:["id"], query:{"select":"id","from":"archive"}`; alternativ `select` als SQL/Dialekt-Map. |
-| DEFAULT für einzelne Werte | Ja | Ja | Ja | `{"default":true}`; automatisch generierte ID alternativ weglassen. |
+| DEFAULT für einzelne INSERT-Werte | Ja | Ja | Ja | `{"default":true}`; automatisch generierte ID alternativ weglassen. In der gemeinsamen Upsert-API sind DEFAULT-Zellen und SET DEFAULT nicht unterstützt. |
 | INSERT DEFAULT VALUES | — | Offen | Offen | Kein eigenes Feld für eine Zeile nur mit Standardwerten; MySQL hat abweichende Leersyntax. |
 | INSERT ... SET | Offen | — | — | Keine API; derselbe Zweck ist mit `values` darstellbar. |
 | INSERT IGNORE | Offen | — | — | Fehlerbehandlung unterscheidet sich von ON CONFLICT DO NOTHING. |
-| ON DUPLICATE KEY UPDATE | Offen | — | — | Kein Upsert-Feld. |
-| ON CONFLICT DO NOTHING / UPDATE | — | — | Offen | PostgreSQL-Konfliktziel und Unique-Regeln erfordern ausdrückliche Definition. |
-| MERGE | — | Offen | Offen | Keine gemeinsame Upsert-/MERGE-API; nicht gleichbedeutend mit MySQL REPLACE. |
+| Gemeinsames Upsert mit VALUES | Ja | Ja | Ja | `{"type":"upsert","table":"products","conflictColumns":["sku"],"values":[{"sku":"A","stock":5}],"set":{"stock":{"incoming":"stock"}},"mysqlConflict":"any_unique"}`. Nicht nullable PRIMARY-/UNIQUE-Schlüssel erforderlich; ein oder mehrere Datensätze. [Anwendung und Grenzen](README.md#upsert-einfügen-oder-aktualisieren). |
+| ON DUPLICATE KEY UPDATE | Teil | — | — | Über `type:"upsert"`; `mysqlConflict:"any_unique"` ausdrücklich erforderlich, weil jeder UNIQUE-Konflikt auslösen kann. `conflictColumns` erzwingt hier kein Konfliktziel. Zeilenalias ab MySQL 8.0.19; bei bekanntem älteren MySQL/MariaDB VALUES(column). Kein INSERT-SELECT-Upsert. |
+| ON CONFLICT (...) DO UPDATE | — | — | Teil | `conflictColumns` und `set` wählen das Ziel und die Änderungen. Neue Werte über `incoming`, vorhandene über `col`. Keine Indexausdrücke, Konfliktbedingungen oder INSERT-SELECT-Upserts. |
+| ON CONFLICT DO NOTHING | — | — | Offen | Keine gemeinsame Ignorier-API; leeres SET wird ausdrücklich abgelehnt. |
+| MERGE | — | Teil | Offen | SQL Server: Upsert-Teilmenge über `type:"upsert"`, zusammengesetztes ON, WHEN MATCHED UPDATE, WHEN NOT MATCHED INSERT und HOLDLOCK. Kein DELETE oder allgemeiner Synchronisierungsmodus; PostgreSQL-MERGE bleibt raw. |
 | REPLACE INTO | Offen | — | — | Kann Löschen und Einfügen auslösen; keine allgemeine UPDATE-Entsprechung. |
-| RETURNING | — | — | Teil | Gemeinsames `returning:["id",{"col":"name","as":"label"}]` oder `"*"`; Zielspalten, keine beliebigen Rückgabeausdrücke. MySQL lehnt ab. |
-| OUTPUT inserted/deleted | — | Teil | — | Dasselbe `returning`-Feld: INSERT/UPDATE nutzt INSERTED, DELETE DELETED. Kein OUTPUT INTO; Servergrenzen bei Triggern beachten. |
+| RETURNING | — | — | Teil | Gemeinsames `returning:["id",{"col":"name","as":"label"}]` oder `"*"`, auch für Upserts; Zielspalten, keine beliebigen Rückgabeausdrücke. MySQL lehnt ab. |
+| OUTPUT inserted/deleted | — | Teil | — | Dasselbe `returning`-Feld: INSERT/UPDATE/Upsert nutzt INSERTED, DELETE DELETED. Kein OUTPUT INTO; Servergrenzen bei Triggern beachten. |
 | INSERT/UPDATE/DELETE mit CTE | Teil | Offen | Teil | SELECT-CTE als INSERT-Quelle bei MySQL/PostgreSQL möglich. Eigenes WITH vor DML ist noch offen; SQL Server INSERT SELECT mit WITH wird abgelehnt. |
 | UPDATE ... SET | Ja | Ja | Ja | `{"type":"update","table":"products","set":{"name":"neu"},"where":["id","=",1]}`. |
 | SET aus Spalte / Ausdruck / Unterabfrage | Ja | Ja | Ja | `set:{"price":{"op":"+","left":"price","right":1}}`; Spalten ausdrücklich mit `col`. |
@@ -451,13 +454,14 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 
 | Status / Priorität | Aufgabe | Begründung / Ziel |
 | --- | --- | --- |
-| Vorbereitet / Hoch | Echte Datenbanktests für alle drei Dialekte durchführen | Separate Integrationstests, Docker-Server und CI-Workflow sind vorhanden. Lokale Läufe ohne Test-DSNs werden ausdrücklich übersprungen; erfolgreiche Server-/CI-Läufe sind gesondert nachzuweisen. [Anleitung](tests/README.md). |
+| Basisstand geprüft / Hoch | Neue Upsert-Fälle gegen alle drei Server ausführen | GitHub-Lauf #1 mit Unit- und Integrationstests war am 24.11.2026 erfolgreich; dieser Stand enthält noch keine Upsert-API. Die neuen Upsert-Integrationstests müssen im nächsten CI-Lauf geprüft werden. Lokale Läufe ohne Test-DSNs werden ausdrücklich übersprungen. [Anleitung](tests/README.md). |
 | Erledigt | MySQL OFFSET ohne LIMIT | Ersatzwert wird als SQL-String erzeugt, ohne PHP-Integerüberlauf. |
 | Erledigt | SQL Server SELECT limit=0 | TOP (0) liefert eine leere Ergebnismenge ohne FETCH 0. |
 | Erledigt | MySQL DML-Joins mit LIMIT | Ungültige Kombination wird ebenso wie Alias-DELETE mit LIMIT ausdrücklich abgelehnt. |
 | Erledigt | SELECT JOIN USING für SQL Server | Wird mit Verweis auf ON abgelehnt. |
 | Erledigt | Globale UNION-Sortierung und -Paginierung | `union_order_by`, `union_limit`, `union_offset` bzw. fluente Methoden ergänzen die bisherigen Teilabfragefelder. |
-| Teilweise / Mittel | Gemeinsame Upsert-/Rückgabe-API | Zielspalten-Rückgaben über `returning` sind vorhanden. Upserts, Konfliktziele, MERGE sowie OUTPUT INTO und komplexere Rückgabeausdrücke bleiben offen. |
+| Erledigt | Gemeinsame Upsert-API mit expliziten Dialektgrenzen | VALUES-Upserts, zusammengesetzte Schlüssel, Incoming-/Bestandswerte, Parameter und Zielspalten-Rückgaben sind vorhanden. MySQLs abweichende Konfliktregeln verlangen `mysqlConflict:"any_unique"`; NULL-/Schlüsseländerungen und bekannte doppelte Quellschlüssel werden abgelehnt. |
+| Offen / Mittel | Weitere Konflikt- und Rückgabefunktionen | DO NOTHING, INSERT-SELECT-Upserts, bedingte Konfliktupdates, allgemeines MERGE, OUTPUT INTO und komplexere Rückgabeausdrücke nach Bedarf ergänzen; Unterschiede ausdrücklich definieren. |
 | Teilweise / Mittel | CTEs, weitere Set-Operatoren und Fensterfunktionen | SELECT-CTEs einschließlich Rekursion sind vorhanden; eigene DML-CTEs, INTERSECT/EXCEPT und Fenster-AST bleiben offen. |
 | Mittel | PostgreSQL-Constraints/Indizes per Katalog suchen | Bisher verlangen die Drop-Actions bekannte Namen; bestehende MySQL-/SQL-Server-Lookups sind keine portable API-Implementierung. |
 | Teilweise / Mittel | Defaults, UNSIGNED, Enum und NULL-Semantik | Bool-Defaults, NULL-Vergleiche und leere IN-Listen sind korrigiert. UNSIGNED/onUpdate ohne passende Dialektunterstützung werden abgelehnt; vollständige Bereichs-, Enum- und Kollationsgleichheit bleibt offen. |
@@ -465,4 +469,4 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 | Teilweise / Mittel | JSON-Schema und Laufzeitparser | Unbekannte SELECT-/Builder-/Spaltenfelder werden abgelehnt und neue Felder sind im Schema erfasst. Das Schema ist weiterhin keine vollständige Dialekt-/Versions- oder SQL-Semantikprüfung. |
 | Niedrig | Verwaltung, Rechte, Wartung und Spezialtypen priorisieren | Nach tatsächlichem Bedarf; die Matrix macht den fehlenden strukturierten Umfang sichtbar. |
 
-Quellcode für den Projektstatus: [SqlBuilder](src/SqlBuilder.php), [SelectBuilder](src/SelectBuilder.php), [PostgreSqlBuilder](src/PostgreSqlBuilder.php), [SqlRenderer](src/SqlRenderer.php), [WhereBuilder](src/WhereBuilder.php), [JSON-Schema](src/definition.schema.json). Ausführbare Übersetzungs- und Fehlerbeispiele: [PostgreSQL-Tests](tests/postgresql.php), [Korrektheitstests](tests/correctness.php), [Integrationstests](tests/integration.php). Beispiele für CTEs, UNION und Rückgaben stehen in der [README](README.md). Bei neuen Fähigkeiten Status, Anwendungsbeispiel, Grenzen und Tests gemeinsam pflegen.
+Quellcode für den Projektstatus: [SqlBuilder](src/SqlBuilder.php), [SelectBuilder](src/SelectBuilder.php), [PostgreSqlBuilder](src/PostgreSqlBuilder.php), [SqlRenderer](src/SqlRenderer.php), [WhereBuilder](src/WhereBuilder.php), [JSON-Schema](src/definition.schema.json). Ausführbare Übersetzungs- und Fehlerbeispiele: [PostgreSQL-Tests](tests/postgresql.php), [Korrektheitstests](tests/correctness.php), [Upsert-Tests](tests/upsert.php), [Integrationstests](tests/integration.php), [Upsert-Integrationstests](tests/integration-upsert.php). Beispiele für CTEs, UNION, Rückgaben und Upserts stehen in der [README](README.md). Bei neuen Fähigkeiten Status, Anwendungsbeispiel, Grenzen und Tests gemeinsam pflegen.

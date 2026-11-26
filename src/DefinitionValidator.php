@@ -78,6 +78,7 @@ final class DefinitionValidator
     $joins = ['join', 'inner_join', 'left_join', 'right_join'];
     $allowed = match ($type) {
       'insert' => ['columns', 'column', 'values', 'rows', 'select', 'query', 'returning'],
+      'upsert' => ['columns', 'values', 'rows', 'conflictColumns', 'set', 'mysqlConflict', 'returning'],
       'update' => array_merge($joins, ['as', 'alias', 'set', 'where', 'limit', 'returning']),
       'delete' => array_merge($joins, ['as', 'alias', 'where', 'limit', 'returning']),
       'create_table' => ['columns', 'primaryKey', 'unique', 'indexes', 'foreignKeys', 'checks', 'ifNotExists'],

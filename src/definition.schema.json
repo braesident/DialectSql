@@ -139,6 +139,9 @@
         },
         {
           "$ref": "#/$defs/queryDefinition"
+        },
+        {
+          "$ref": "#/$defs/upsertDefinition"
         }
       ]
     },
@@ -2121,6 +2124,9 @@
         "param": {
           "type": "string",
           "pattern": "^:?[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "incoming": {
+          "$ref": "#/$defs/upsertColumnName"
         }
       }
     },
@@ -2660,6 +2666,82 @@
           }
         }
       ]
+    },
+    "upsertDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "upsert"
+        },
+        "table": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "columns": {
+          "$ref": "#/$defs/columnList"
+        },
+        "values": {
+          "$ref": "#/$defs/upsertValues"
+        },
+        "rows": {
+          "$ref": "#/$defs/upsertValues"
+        },
+        "conflictColumns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/upsertColumnName"
+          }
+        },
+        "set": {
+          "$ref": "#/$defs/updateSet"
+        },
+        "mysqlConflict": {
+          "const": "any_unique"
+        },
+        "returning": {
+          "$ref": "#/$defs/returning"
+        }
+      },
+      "required": [
+        "type",
+        "table",
+        "conflictColumns",
+        "set"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "values"
+          ]
+        },
+        {
+          "required": [
+            "rows"
+          ]
+        }
+      ]
+    },
+    "upsertValues": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/insertValues"
+        },
+        {
+          "$ref": "#/$defs/insertRow"
+        }
+      ]
+    },
+    "upsertColumnName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\*$)(?=.*\\S)[^.]+$"
     }
   }
 }

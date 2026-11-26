@@ -138,6 +138,12 @@ final class SelectBuilder
     return ['param' => $name];
   }
 
+  /** References a value proposed for insertion inside an upsert SET expression. */
+  public static function incoming(string $column): array
+  {
+    return ['incoming' => $column];
+  }
+
   /**
    * Builds a CASE WHEN item.
    */
@@ -1173,10 +1179,30 @@ final class SelectBuilder
 
       if (\array_key_exists('col', $expr)) {
         if (\is_string($expr['col'])) {
+          if (isset($this->context['upsert'])) {
+            $name = $expr['col'];
+            if ('*' === $name || str_contains($name, '.')) {
+              throw new InvalidArgumentException('upsert col benötigt einen unqualifizierten Spaltennamen.');
+            }
+            $target = $this->context['upsert']['target'];
+
+            return (null !== $target ? $this->quoteIdentifier($target).'.' : '').$this->quoteIdentifier($name);
+          }
           return Dialect::path($expr['col'], $this->dialect);
         }
 
         throw new InvalidArgumentException('col benötigt einen Bezeichner als String.');
+      }
+
+      if (\array_key_exists('incoming', $expr)) {
+        $scope = $this->context['upsert'] ?? null;
+        $column = $expr['incoming'];
+        if (null === $scope || ! \is_string($column) || ! \in_array($column, $scope['columns'], true)) {
+          throw new InvalidArgumentException('incoming benötigt im upsert set eine in values enthaltene Spalte.');
+        }
+        $quoted = $this->quoteIdentifier($column);
+
+        return $scope['mysqlValues'] ? 'VALUES('.$quoted.')' : $this->quoteIdentifier($scope['source']).'.'.$quoted;
       }
 
       if (isset($expr['expr'])) {
@@ -1223,6 +1249,9 @@ final class SelectBuilder
       }
 
       if (isset($expr['query'])) {
+        if (isset($this->context['upsert'])) {
+          throw new InvalidArgumentException('upsert set unterstützt keine Unterabfragen; nutze ausdrücklich raw.');
+        }
         return $this->renderSubquery($expr['query']);
       }
 
@@ -1633,6 +1662,9 @@ final class SelectBuilder
 
   private function renderSubquery(mixed $query): string
   {
+    if (isset($this->context['upsert'])) {
+      throw new InvalidArgumentException('upsert set unterstützt keine Unterabfragen; nutze ausdrücklich raw.');
+    }
     $sql = $query instanceof self ? $query->statement() : self::fromQuery($query, $this->context)->statement();
     if ('sqlsrv' === $this->dialect && preg_match('/^\s*;?\s*WITH\b/i', $sql)) {
       throw new InvalidArgumentException('SQL Server unterstützt kein WITH in einer Unterabfrage; definiere die CTE am Root.');

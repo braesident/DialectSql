@@ -53,4 +53,5 @@ check( ! class_exists('Braesident\\DbMigration\\Migration', false), 'DbMigration
 check( ! class_exists('Braesident\\CipherPDO\\CipherPDO', false), 'CipherPDO darf nicht vorausgesetzt werden.');
 require __DIR__.'/postgresql.php';
 require __DIR__.'/correctness.php';
+require __DIR__.'/upsert.php';
 echo "DialectSql: {$checks} Prüfungen erfolgreich.\n";

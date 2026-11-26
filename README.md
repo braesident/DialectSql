@@ -165,7 +165,74 @@ $sql = SqlBuilder::build($definition, 'sqlsrv');
 // INSERT INTO [dbo].[products] ([name]) OUTPUT INSERTED.[id], INSERTED.[name] AS [label] VALUES (N'Öl')
 ```
 
-`returning` gilt auch für UPDATE und DELETE. Erlaubt sind eine nicht leere Liste unqualifizierter Zielspalten, optionale Spaltenaliase oder `"*"`. INSERT/UPDATE liefern den neuen, DELETE den entfernten Zustand; SQL Server nutzt INSERTED beziehungsweise DELETED. MySQL lehnt die Option ab. Rückgabeausdrücke, OUTPUT INTO, alte und neue Werte gemeinsam sowie eine automatische MySQL-Emulation sind nicht enthalten. SQL-Server-OUTPUT ohne INTO unterliegt insbesondere Einschränkungen bei aktivierten Triggern; Werte werden vor nachgelagerten Triggeränderungen zurückgegeben. Bei Fehlern oder Rollback sind Rückgaben nicht als bestätigte Speicherung zu verwenden.
+`returning` gilt auch für UPDATE, DELETE und Upserts. Erlaubt sind eine nicht leere Liste unqualifizierter Zielspalten, optionale Spaltenaliase oder `"*"`. INSERT/UPDATE/Upsert liefern den neuen, DELETE den entfernten Zustand; SQL Server nutzt INSERTED beziehungsweise DELETED. MySQL lehnt die Option ab. Rückgabeausdrücke, OUTPUT INTO, alte und neue Werte gemeinsam sowie eine automatische MySQL-Emulation sind nicht enthalten. SQL-Server-OUTPUT ohne INTO unterliegt insbesondere Einschränkungen bei aktivierten Triggern; Werte werden vor nachgelagerten Triggeränderungen zurückgegeben. Bei Fehlern oder Rollback sind Rückgaben nicht als bestätigte Speicherung zu verwenden.
+
+## Upsert: Einfügen oder Aktualisieren
+
+Mit derselben Definition wird eine neue Zeile eingefügt oder bei einem passenden Schlüssel die vorhandene Zeile aktualisiert. Sie kann unmittelbar an `SqlBuilder`/`SqlRenderer` oder als Builder-Schritt übergeben werden:
+
+```json
+{
+  "type": "upsert",
+  "table": "products",
+  "conflictColumns": ["sku"],
+  "values": [
+    {"sku": "A-100", "name": "Öl", "stock": 5}
+  ],
+  "set": {
+    "name": {"incoming": "name"},
+    "stock": {"op": "+", "left": {"col": "stock"}, "right": {"incoming": "stock"}}
+  },
+  "mysqlConflict": "any_unique"
+}
+```
+
+Die Tabelle muss bereits einen passenden PRIMARY KEY oder UNIQUE-Schlüssel auf `sku` besitzen. Bei neuen Produkten wird `stock=5` eingefügt. Bei vorhandenen Produkten werden Name und Bestand aktualisiert; der Bestand wird dabei um 5 erhöht.
+
+```php
+$definition = [
+  'type' => 'upsert',
+  'table' => 'products',
+  'conflictColumns' => ['sku'],
+  'values' => [['sku' => ['param' => 'sku'], 'name' => ['param' => 'name'], 'stock' => ['param' => 'stock']]],
+  'set' => [
+    'name' => SelectBuilder::incoming('name'),
+    'stock' => SelectBuilder::calc(SelectBuilder::col('stock'), '+', SelectBuilder::incoming('stock')),
+  ],
+  'mysqlConflict' => 'any_unique',
+];
+$sql = SqlBuilder::build($definition, 'pgsql'); // Ebenso mysql oder sqlsrv.
+$stmt = $pdo->prepare($sql);
+$stmt->bindValue(':sku', 'A-100', PDO::PARAM_STR);
+$stmt->bindValue(':name', 'Öl', PDO::PARAM_STR);
+$stmt->bindValue(':stock', 5, PDO::PARAM_INT);
+$stmt->execute();
+```
+
+| Feld / Ausdruck | Bedeutung |
+| --- | --- |
+| `values` oder `rows` | Eingabezeilen wie bei INSERT; eine oder mehrere Objektzeilen, alternativ positionale Werte mit `columns`. Beide Felder gleichzeitig sind unzulässig. |
+| `conflictColumns` | Nicht leere Liste der Schlüsselspalten, auch zusammengesetzt wie `["tenant", "sku"]`. Alle müssen in jeder Eingabezeile vorkommen. |
+| `set` | Nicht leeres Objekt oder bestehende UPDATE-Zuweisungsliste; bestimmt ausschließlich die Änderungen an vorhandenen Zeilen. Neue Zeilen erhalten die Eingabewerte. |
+| `{"incoming":"stock"}` | Der neu angelieferte Wert der angegebenen Eingabespalte. Nur im Upsert-SET gültig, auch verschachtelt in Ausdrücken, Funktionen oder CASE. |
+| `{"col":"stock"}` im Upsert-SET | Der bisherige Wert der Zielspalte; ohne Tabellenqualifizierung angeben. |
+| String, Zahl, boolean, NULL in `set` | Literal wie bei UPDATE. Für Platzhalter `param`, für bewusst natives SQL `raw` verwenden. |
+| `mysqlConflict:"any_unique"` | Erforderliche ausdrückliche Wahl des MySQL-/MariaDB-Verhaltens; in einer gemeinsamen Definition für alle drei Dialekte verwendbar. |
+| `returning` | Optionale Zielspalten-Rückgabe für PostgreSQL und SQL Server wie bei anderen DML-Definitionen. MySQL lehnt sie ab. |
+
+| Dialekt | Erzeugte Syntax | Konfliktverhalten |
+| --- | --- | --- |
+| MySQL / MariaDB | INSERT ... ON DUPLICATE KEY UPDATE | Jeder PRIMARY-/UNIQUE-Konflikt kann das Update auslösen; die Datenbank kann `conflictColumns` nicht als ausgewähltes Konfliktziel erzwingen. |
+| PostgreSQL | INSERT ... ON CONFLICT (...) DO UPDATE | Verwendet die angegebenen Konfliktspalten. Ein Konflikt mit einem anderen UNIQUE-Schlüssel bleibt ein Fehler. |
+| SQL Server | MERGE ... WITH (HOLDLOCK) | Vergleicht die angegebenen Schlüssel und erzeugt nur WHEN MATCHED UPDATE sowie WHEN NOT MATCHED INSERT. Andere UNIQUE-Konflikte bleiben Fehler. |
+
+MySQL benötigt deshalb `mysqlConflict:"any_unique"`. Ohne diese Angabe wird das Upsert abgelehnt. Bei mehreren UNIQUE-Schlüsseln muss die Anwendung die mögliche Auswahl einer anderen vorhandenen Zeile berücksichtigen; eine Gleichsetzung mit dem engeren PostgreSQL-/SQL-Server-Konfliktziel erfolgt nicht. [MySQL-Konfliktregeln](https://dev.mysql.com/doc/refman/8.4/en/insert-on-duplicate.html).
+
+Ohne MySQL-Versionskontext wird die Zeilenalias-Syntax ab MySQL 8.0.19 erzeugt. `SqlRenderer` erkennt Serverprodukt und Version über PDO. Für bekannte ältere MySQL-Versionen und MariaDB wird `VALUES(column)` verwendet; direkt beispielsweise `SqlBuilder::build($definition, ['dialect' => 'mysql', 'serverVersionId' => 50744])`. In neueren MySQL-Versionen vermeidet der Zeilenalias die veraltete VALUES-Funktion. [MySQL-Versionen](https://dev.mysql.com/doc/refman/8.0/en/insert-on-duplicate.html), [MariaDB VALUES](https://mariadb.com/docs/server/reference/sql-statements/data-manipulation/inserting-loading-data/insert-on-duplicate-key-update).
+
+Ein Upsert erzeugt genau ein SQL-Statement. Es wird keine vorherige SELECT-/UPDATE-/INSERT-Abfolge ausgeführt und keine Transaktion durch die Bibliothek gestartet. SQL Server erhält HOLDLOCK für die MERGE-Zieltabelle; Transaktionsgrenzen und die Behandlung von Sperrkonflikten bleiben bei der Anwendung. Rückgaben haben keine garantierte Reihenfolge, und betroffene Zeilenzahlen werden nicht dialektübergreifend vereinheitlicht. [SQL Server MERGE](https://learn.microsoft.com/en-us/sql/t-sql/statements/merge-transact-sql?view=sql-server-ver17), [PostgreSQL ON CONFLICT](https://www.postgresql.org/docs/18/sql-insert.html).
+
+Konfliktschlüssel müssen nicht NULL und innerhalb der Eingabe eindeutig sein. Bekannte NULL-Literale und identische literale Schlüsseltupel werden abgelehnt. Bei Parametern, Ausdrücken, Typkonvertierungen und Kollationen muss die Anwendung die Eindeutigkeit sicherstellen. Automatisch erzeugte IDs und andere Standardspalten weglassen. DEFAULT in Eingabezellen oder SET, Schlüsseländerungen, leeres SET als DO NOTHING, INSERT-SELECT-Upserts, strukturierte SET-Unterabfragen, Konfliktbedingungen/Indexausdrücke und allgemeine MERGE-Synchronisierung sind nicht Teil dieser API. Bewusstes natives SQL bleibt über `raw` möglich.
 
 ## JSON-Format (Kurzübersicht)
 
@@ -213,6 +280,7 @@ $sql = $renderer->render([
 - `alter_trigger`: Trigger ändern (mysql: DROP + CREATE)
 - `drop_trigger`: Trigger entfernen
 - `insert`: INSERT (VALUES oder INSERT...SELECT)
+- `upsert`: INSERT oder UPDATE bei Schlüsselkonflikt (VALUES, conflictColumns, set)
 - `update`: UPDATE (SET + WHERE)
 - `delete`: DELETE (optional JOINs, WHERE, LIMIT)
 - `raw`: Dialekt-SQL direkt

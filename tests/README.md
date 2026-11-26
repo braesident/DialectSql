@@ -18,6 +18,10 @@ php tests/integration.php --dialect=mysql --require-all
 
 Die Integrationstests führen generierte Statements wirklich aus. Sie vergleichen gespeicherte Werte und Ergebnismengen für Unicode, Apostrophe, Backslashes, Parameter, NULL/IN, Paginierung, rekursive SELECT-CTEs, globale UNION-Paginierung, Join-Änderungen, Tabellenänderungen und Views. PostgreSQL und SQL Server prüfen außerdem INSERT-/UPDATE-/DELETE-Rückgaben.
 
+[Upsert-Integrationstests](integration-upsert.php) ergänzen neue und vorhandene Zeilen in einem Batch, zusammengesetzte UNIQUE-Schlüssel, automatisch erzeugte IDs, Incoming-/Bestandswerte, Parameter und Rückgaben. Eine zweite UNIQUE-Bedingung prüft gezielt den dokumentierten Unterschied: MySQLs ausdrücklich gewähltes `any_unique` aktualisiert die kollidierende Zeile; PostgreSQL und SQL Server melden außerhalb des gewählten Schlüssels eine Constraint-Verletzung.
+
+CI-Basisstand: GitHub-Lauf #1 am 24.11.2026 mit `unit (8.0)`, `unit (8.3)` und `integration` erfolgreich. Dieser Nachweis gilt für den Stand vor der Upsert-Erweiterung. Die neuen Upsert-Fälle müssen im folgenden CI-Lauf erneut gegen die Server ausgeführt werden. Lokal sind dafür weiterhin passende DSNs und PDO-Treiber erforderlich.
+
 Verbindungen werden ausschließlich aus folgenden Umgebungsvariablen gelesen:
 
 | Dialekt | DSN | Benutzer | Passwort | PDO-Treiber |
