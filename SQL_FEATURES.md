@@ -47,7 +47,7 @@ Syntaxgrundlagen: [MySQL SELECT](https://dev.mysql.com/doc/refman/8.4/en/select.
 | WHERE | Ja | Ja | Ja | `{"where":["id",">",0]}`; Bedingungen siehe Abschnitt 3. |
 | GROUP BY | Ja | Ja | Ja | `{"group_by":["category_id"]}` / `groupBy()`. Keine Anpassung unterschiedlicher Gruppierungsregeln. |
 | HAVING | Ja | Ja | Ja | `{"having":[{"fn":"count","args":["*"]},">",1]}`. |
-| ORDER BY / ASC / DESC | Ja | Ja | Ja | `{"order_by":[{"expr":"id","dir":"DESC"}]}` / `orderBy('id', 'DESC')`. |
+| ORDER BY / ASC / DESC | Ja | Ja | Ja | `{"order_by":[{"col":"p.ProductId","dir":"DESC"}]}` / `orderBy(SelectBuilder::col('p.ProductId'), 'DESC')` quotet die Spalte; `column` ist eine Kurzform für `col`. `expr` unterstützt Ausdrücke, bestehende Strings bleiben SQL. Gilt auch für globale UNION-Sortierung. |
 | NULLS FIRST / NULLS LAST | — | — | Teil | In PostgreSQL als `dir:"ASC NULLS LAST"` oder String möglich; keine portable NULL-Sortierung. |
 | LIMIT / TOP / FETCH | Ja | Ja | Ja | Gemeinsames Feld `limit`; unterschiedliche Ausgabe, siehe Abschnitt 2. |
 | OFFSET | Ja | Ja | Ja | Gemeinsames Feld `offset`; MySQL ohne Limit verwendet einen unbegrenzten Ersatzwert als SQL-String. |
@@ -155,7 +155,7 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | Boolesche Literale | Ja | Ja | Ja | PHP/JSON `true`/`false`: MySQL/SQL Server `1`/`0`, PostgreSQL `TRUE`/`FALSE`. |
 | PDO-Platzhalter | Ja | Ja | Ja | `{"param":"id"}` / `SelectBuilder::param('id')`; Parameternamen werden geprüft. Bestehendes `{"raw":":id"}` bleibt möglich; Werte separat binden. |
 | Upsert-Eingabewert / Bestandswert | Ja | Ja | Ja | Nur im Upsert-SET: `{"incoming":"stock"}` / `SelectBuilder::incoming('stock')` bezeichnet den Eingabewert, `{"col":"stock"}` den vorhandenen Wert. MySQL/MariaDB qualifizieren Bestandsreferenzen mit der Zieltabelle, um Mehrdeutigkeit mit dem Eingabealias zu vermeiden. Verschachtelte Ausdrücke, Funktionen und CASE sind möglich. |
-| WhereBuilder + Parameterlisten | Ja | Ja | Ja | `andEqualsParam()`, `andIn()`, `orIn()`, `conditions()`, `params()`; erzeugt keine eigene Verbindung. |
+| WhereBuilder + Parameterlisten | Ja | Ja | Ja | `andEqualsParam(SelectBuilder::col('p.ProductId'), $id)`, `andIn()`, `orIn()` und alle Vergleichs-/Parameteraliase akzeptieren Strings, Ausdrucksarrays und -objekte. `col` quotet explizite Namen; Strings bleiben SQL. `conditions()` / `params()` halten SQL-Struktur und Werte getrennt, auch in Gruppen. |
 
 Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder Funktionsname auf dem Zielserver existiert. Syntaxübernahme ist daher nur **Teil**-Unterstützung und keine Dialektübersetzung.
 
@@ -323,7 +323,7 @@ Diese Tabelle bezieht sich auf Spaltendefinitionen in CREATE/ALTER. Typnamen wer
 | `tinyint` | TINYINT, Ja | TINYINT, Ja | SMALLINT, Teil | SQL Server TINYINT ist nicht vorzeichenbehaftet; PostgreSQL-SMALLINT ist größer. |
 | `smallint` | SMALLINT, Ja | SMALLINT, Ja | SMALLINT, Ja | UNSIGNED gesondert behandeln. |
 | `bigint` | BIGINT, Ja | BIGINT, Ja | BIGINT, Ja | Große PHP-Werte gegebenenfalls als gebundene Parameter behandeln. |
-| `boolean` | TINYINT(1), Ja | BIT, Ja | BOOLEAN, Ja | MySQL erzwingt nicht allein durch TINYINT(1) die Werte 0/1. |
+| `boolean` | TINYINT(1), Ja | BIT, Ja | BOOLEAN, Ja | MySQL erzwingt nicht allein durch TINYINT(1) die Werte 0/1. PostgreSQL normalisiert Defaults für native BOOLEAN-Typen aus 0/1 und gültigen Boolean-Strings zu FALSE/TRUE und lehnt ungültige Werte ab. Numerische Typ-Overrides behalten numerische Defaults; DML-Vergleiche bleiben ausdrücklich. |
 | `string` / `varchar` | VARCHAR(length), Ja | NVARCHAR(length), Ja | VARCHAR(length), Ja | Standardlänge 255; Unicode und Kollation bleiben serverabhängig. |
 | `text` | TEXT, Ja | NVARCHAR(MAX), Ja | TEXT, Ja | Größenlimits unterscheiden sich. |
 | `mediumtext` / `longtext` | MEDIUMTEXT / LONGTEXT, Ja | NVARCHAR(MAX), Teil | TEXT, Teil | Keine identischen Maximalgrößen. |
@@ -454,12 +454,14 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 
 | Status / Priorität | Aufgabe | Begründung / Ziel |
 | --- | --- | --- |
+| Vorbereitet / Hoch | Typisierte Defaults und Ausdrucksargumente gegen alle drei Server prüfen | Separate Integrationstests prüfen CREATE/ADD-Defaults, numerische Typ-Overrides, typisiertes MODIFY bei MySQL/PostgreSQL sowie gemischte Groß-/Kleinschreibung in WHERE, ORDER BY und globaler UNION-Sortierung. Ohne Test-DSNs bleiben diese Läufe ausstehend. [Testfälle](tests/integration-portability.php). |
 | Teilweise geprüft / Hoch | MySQL-Upsert-Korrektur im CI prüfen | Im GitHub-Lauf vom 26.11.2026 waren beide Unit-Jobs und die SQL-Server-/PostgreSQL-Integration erfolgreich. MySQL meldete Fehler 1052 bei einer unqualifizierten Bestandsreferenz. Der Builder qualifiziert diese nun mit der Zieltabelle; die Korrektur und zusätzliche Funktionen-/CASE-Fälle benötigen einen neuen Serverlauf. [Teststand und Anleitung](tests/README.md). |
 | Erledigt | MySQL OFFSET ohne LIMIT | Ersatzwert wird als SQL-String erzeugt, ohne PHP-Integerüberlauf. |
 | Erledigt | SQL Server SELECT limit=0 | TOP (0) liefert eine leere Ergebnismenge ohne FETCH 0. |
 | Erledigt | MySQL DML-Joins mit LIMIT | Ungültige Kombination wird ebenso wie Alias-DELETE mit LIMIT ausdrücklich abgelehnt. |
 | Erledigt | SELECT JOIN USING für SQL Server | Wird mit Verweis auf ON abgelehnt. |
 | Erledigt | Globale UNION-Sortierung und -Paginierung | `union_order_by`, `union_limit`, `union_offset` bzw. fluente Methoden ergänzen die bisherigen Teilabfragefelder. |
+| Erledigt | Native PostgreSQL-Boolean-Defaults und explizite Spaltenausdrücke | Numerische Boolean-Defaults werden nach dem effektiven Spaltentyp normalisiert. ORDER BY erhält `col`-/`column`-Referenzen; WhereBuilder akzeptiert Ausdrucksarrays/-objekte durchgängig. [Regressionstests](tests/portability.php). |
 | Erledigt | Gemeinsame Upsert-API mit expliziten Dialektgrenzen | VALUES-Upserts, zusammengesetzte Schlüssel, Incoming-/Bestandswerte, Parameter und Zielspalten-Rückgaben sind vorhanden. MySQLs abweichende Konfliktregeln verlangen `mysqlConflict:"any_unique"`; NULL-/Schlüsseländerungen und bekannte doppelte Quellschlüssel werden abgelehnt. |
 | Offen / Mittel | Weitere Konflikt- und Rückgabefunktionen | DO NOTHING, INSERT-SELECT-Upserts, bedingte Konfliktupdates, allgemeines MERGE, OUTPUT INTO und komplexere Rückgabeausdrücke nach Bedarf ergänzen; Unterschiede ausdrücklich definieren. |
 | Teilweise / Mittel | CTEs, weitere Set-Operatoren und Fensterfunktionen | SELECT-CTEs einschließlich Rekursion sind vorhanden; eigene DML-CTEs, INTERSECT/EXCEPT und Fenster-AST bleiben offen. |

@@ -8,6 +8,8 @@ php tests/run.php
 
 Alternativ `composer test`. PHP-Warnungen und Notices werden als Testfehler behandelt. Die Tests benötigen keine laufende Datenbank und keine PDO-Treiber für einzelne Datenbanksysteme.
 
+[Portabilitätstests](portability.php) prüfen typisierte PostgreSQL-Boolean-Defaults einschließlich numerischer Typ-Overrides, explizite Spaltenreferenzen in ORDER BY/UNION sowie WhereBuilder-Ausdrücke, Parameter, Gruppen und IN-Listen für alle drei Dialekte.
+
 ## Integrationstests
 
 ```shell
@@ -19,6 +21,8 @@ php tests/integration.php --dialect=mysql --require-all
 Die Integrationstests führen generierte Statements wirklich aus. Sie vergleichen gespeicherte Werte und Ergebnismengen für Unicode, Apostrophe, Backslashes, Parameter, NULL/IN, Paginierung, rekursive SELECT-CTEs, globale UNION-Paginierung, Join-Änderungen, Tabellenänderungen und Views. PostgreSQL und SQL Server prüfen außerdem INSERT-/UPDATE-/DELETE-Rückgaben.
 
 [Upsert-Integrationstests](integration-upsert.php) ergänzen neue und vorhandene Zeilen in einem Batch, zusammengesetzte UNIQUE-Schlüssel, automatisch erzeugte IDs, Incoming-/Bestandswerte, Parameter und Rückgaben. Funktionen und CASE kombinieren Eingabe- und Bestandsreferenzen auch verschachtelt. Eine zweite UNIQUE-Bedingung prüft gezielt den dokumentierten Unterschied: MySQLs ausdrücklich gewähltes `any_unique` aktualisiert die kollidierende Zeile; PostgreSQL und SQL Server melden außerhalb des gewählten Schlüssels eine Constraint-Verletzung.
+
+[Typ- und Ausdruckstests](integration-portability.php) ergänzen numerisch angegebene Boolean-Defaults bei CREATE/ADD, numerische PostgreSQL-Typ-Overrides, typisiertes MODIFY bei MySQL/PostgreSQL und gequotete Spalten mit gemischter Groß-/Kleinschreibung in WHERE, ORDER BY und globalen UNION-Abfragen. Auch Funktionsausdrücke und IN-Objekte werden mit gebundenen Parametern ausgeführt. Die neuen Serverfälle sind lokal ohne Test-DSNs nicht ausgeführt; ihr CI-Nachweis steht noch aus.
 
 CI-Stand vom 26.11.2026: Im [GitHub-Lauf 45794303822](https://github.com/braesident/DialectSql/actions/runs/45794303822) waren `unit (8.0)`, `unit (8.3)` und die SQL-Server-/PostgreSQL-Integration erfolgreich. MySQL scheiterte mit Fehler 1052 an der mehrdeutigen Bestandsreferenz `quantity`. Die Korrektur qualifiziert Bestandsreferenzen mit der Zieltabelle; ihre Ausführung und die zusätzlichen Funktionen-/CASE-Fälle stehen im nächsten CI-Lauf noch aus. Lokal sind dafür weiterhin passende DSNs und PDO-Treiber erforderlich.
 

@@ -119,6 +119,24 @@ $stmt->execute(['id' => 42]);
 
 Leeres `IN []` ergibt `1=0`, leeres `NOT IN []` ergibt `1=1`. Auch `WhereBuilder::andIn()`/`orIn()` entfernen leere Listen nicht mehr; leere Strings und NULL bleiben als übergebene Werte erhalten. Soll ein optionaler Filter bei leerer Benutzerauswahl entfallen, entscheidet dies die Anwendung vor dem Builder-Aufruf. Explizite Vergleiche `= null`/`<> null`, auch mit `value:null`, werden zu IS NULL/IS NOT NULL.
 
+`order_by: [{"col":"p.ProductId","dir":"DESC"}]` quotet die Spalte ebenso wie `orderBy(SelectBuilder::col('p.ProductId'), 'DESC')`. `column` ist eine gleichwertige Kurzform für `col`. Für Ausdrücke dient `expr`, beispielsweise `{"expr":{"fn":"lower","args":[{"col":"p.Name"}]},"dir":"ASC"}`. Diese Regeln gelten auch für `union_order_by`. Bestehende Stringausdrücke bleiben SQL.
+
+## Boolean-Defaults und Typ-Overrides
+
+```php
+$definition = [
+  'type' => 'create_table', 'table' => 'settings',
+  'columns' => [['name' => 'ActiveFlag', 'type' => 'boolean', 'nullable' => false, 'default' => 1]],
+];
+$sql = SqlBuilder::build($definition, 'pgsql');
+// "ActiveFlag" BOOLEAN NOT NULL DEFAULT TRUE
+// mysql: TINYINT(1) NOT NULL DEFAULT 1; sqlsrv: BIT NOT NULL DEFAULT 1
+```
+
+Bei einem effektiven PostgreSQL-Typ BOOLEAN, BOOL oder `pg_catalog.bool` werden `true`/`false`, numerische `0`/`1` und gültige PostgreSQL-Boolean-Strings wie `"false"`, `"yes"` oder `"off"` als TRUE/FALSE ausgegeben. NULL bleibt NULL. Andere Werte wie `2` oder `"maybe"` werden mit `InvalidArgumentException` abgelehnt. Das gilt für CREATE TABLE, ADD COLUMN und MODIFY mit angegebenem Typ. [PostgreSQL-Boolean-Werte](https://www.postgresql.org/docs/18/datatype-boolean.html).
+
+Maßgeblich ist der erzeugte Typ einschließlich Overrides: Bei `type:"boolean", pgsql:"SMALLINT", default:1` bleibt der Default numerisch. Bestehende numerische Flag-Spalten verwenden weiterhin numerische Defaults und Vergleichswerte. Wenn bei MODIFY nur ein Default ohne Typ angegeben wird, fehlt dem Builder die Typinformation; für einen Boolean-Default dort ausdrücklich PHP/JSON `true` oder `false` verwenden. Es werden keine Datenbankmetadaten abgefragt und keine DML-Vergleiche automatisch umgeschrieben.
+
 ## SELECT-CTEs und globale UNION-Paginierung
 
 ```php
@@ -776,24 +794,27 @@ Schema‑Hinweis (SQL Server):
 
 WhereBuilder (kompakte WHERE + Params):
 ```php
+use Braesident\DialectSql\SelectBuilder;
 use Braesident\DialectSql\WhereBuilder;
 
 $where = new WhereBuilder();
-$where->andNotEquals('o.eStatus', 'deleted');
-$where->andParam('o.kAccount', '=', (int) $accountId, 'kaccount');
-$where->andIn('o.eStatus', $statusFilter, 'status');
-$where->orIn('o.eStatus', $fallbackFilter, 'status_fallback');
+$where->andNotEquals(SelectBuilder::col('o.eStatus'), 'deleted');
+$where->andParam(SelectBuilder::col('o.kAccount'), '=', (int) $accountId, 'kaccount');
+$where->andIn(SelectBuilder::col('o.eStatus'), $statusFilter, 'status');
+$where->orIn((object) ['col' => 'o.eStatus'], $fallbackFilter, 'status_fallback');
 
 $objTotals['where'] = $where->conditions();
 $params = $where->params();
 ```
 
+Alle Spaltenargumente der Vergleichs-, Parameter- und IN-Methoden einschließlich ihrer Kurzformen akzeptieren SQL-Strings, Ausdrucksarrays und Ausdrucksobjekte. `SelectBuilder::col()` beziehungsweise `['col' => ...]` quotet den Namen dialektgerecht. Auch Funktionen wie `SelectBuilder::fn('lower', SelectBuilder::col('o.eStatus'))` und ausdrücklich gewähltes `['raw' => ...]` sind verwendbar. Bisherige Stringargumente bleiben SQL-Ausdrücke. Gruppierte Bedingungen teilen weiterhin ihre Parameterliste; Werte werden separat gebunden.
+
 Weitere Helper (Vergleiche + Kurzformen):
 ```php
-$where->andLt('o.nTotal', 10);
-$where->orGte('o.nTotal', 100);
-$where->andLtParam('o.nTotal', 10, 'min_total');
-$where->andGteParam('o.nTotal', 100, 'max_total');
+$where->andLt(SelectBuilder::col('o.nTotal'), 10);
+$where->orGte(SelectBuilder::col('o.nTotal'), 100);
+$where->andLtParam(SelectBuilder::col('o.nTotal'), 10, 'min_total');
+$where->andGteParam(SelectBuilder::col('o.nTotal'), 100, 'max_total');
 ```
 
 Gruppierung:
@@ -1026,11 +1047,11 @@ Zulässige Formen (als `expr` oder direkt in select/where etc.):
 "order_by": "o.dOrder_date DESC"
 ```
 ```json
-"order_by": ["o.dOrder_date", "DESC"]
+"order_by": [["o.dOrder_date", "DESC"]]
 ```
 ```json
 "order_by": [
-  { "expr": "o.dOrder_date", "dir": "DESC" },
-  ["o.cOrder_id", "ASC"]
+  { "col": "o.dOrder_date", "dir": "DESC" },
+  [{ "col": "o.cOrder_id" }, "ASC"]
 ]
 ```

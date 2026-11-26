@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__.'/bootstrap.php';
 require __DIR__.'/integration-upsert.php';
+require __DIR__.'/integration-portability.php';
 
 use Braesident\DialectSql\SelectBuilder;
 use Braesident\DialectSql\SqlRenderer;
@@ -135,6 +136,7 @@ foreach ($dialects as $dialect) {
     $created[] = ['type' => 'drop_view', 'view' => $view];
     sameSql([1, 2], $ids($run(['select' => 'id', 'from' => $view, 'order_by' => 'id'])), 'Views müssen dieselben Datensätze bereitstellen.');
     runUpsertIntegration($dialect, $suffix, $run, $created);
+    runPortabilityIntegration($dialect, $suffix, $run, $created);
     ++$executed;
     echo "PASS {$dialect}: DDL, DML, Upserts, Literale, Parameter, CTEs und Paginierung ausgeführt.\n";
   } catch (Throwable $error) {

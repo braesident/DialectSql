@@ -8,6 +8,7 @@ use InvalidArgumentException;
 
 /**
  * Builds WHERE conditions and parameter bindings for SQL ASTs.
+ * Column arguments accept SQL strings, expression arrays, and expression objects.
  */
 final class WhereBuilder
 {
@@ -55,7 +56,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andValue(string $column, string $operator, mixed $value): self
+  public function andValue(string|array|object $column, string $operator, mixed $value): self
   {
     $this->conditions[] = [$column, $operator, ['value' => $value]];
 
@@ -67,7 +68,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orValue(string $column, string $operator, mixed $value): self
+  public function orValue(string|array|object $column, string $operator, mixed $value): self
   {
     $this->appendOrCondition([$column, $operator, ['value' => $value]]);
 
@@ -79,7 +80,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andEquals(string $column, mixed $value): self
+  public function andEquals(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '=', $value);
   }
@@ -89,7 +90,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andNotEquals(string $column, mixed $value): self
+  public function andNotEquals(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '<>', $value);
   }
@@ -99,7 +100,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orEquals(string $column, mixed $value): self
+  public function orEquals(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '=', $value);
   }
@@ -109,7 +110,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orNotEquals(string $column, mixed $value): self
+  public function orNotEquals(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '<>', $value);
   }
@@ -119,7 +120,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLessThan(string $column, mixed $value): self
+  public function andLessThan(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '<', $value);
   }
@@ -129,7 +130,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLessThanOrEqual(string $column, mixed $value): self
+  public function andLessThanOrEqual(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '<=', $value);
   }
@@ -139,7 +140,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGreaterThan(string $column, mixed $value): self
+  public function andGreaterThan(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '>', $value);
   }
@@ -149,7 +150,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGreaterThanOrEqual(string $column, mixed $value): self
+  public function andGreaterThanOrEqual(string|array|object $column, mixed $value): self
   {
     return $this->andValue($column, '>=', $value);
   }
@@ -159,7 +160,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLessThan(string $column, mixed $value): self
+  public function orLessThan(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '<', $value);
   }
@@ -169,7 +170,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLessThanOrEqual(string $column, mixed $value): self
+  public function orLessThanOrEqual(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '<=', $value);
   }
@@ -179,7 +180,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGreaterThan(string $column, mixed $value): self
+  public function orGreaterThan(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '>', $value);
   }
@@ -189,7 +190,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGreaterThanOrEqual(string $column, mixed $value): self
+  public function orGreaterThanOrEqual(string|array|object $column, mixed $value): self
   {
     return $this->orValue($column, '>=', $value);
   }
@@ -199,7 +200,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andEq(string $column, mixed $value): self
+  public function andEq(string|array|object $column, mixed $value): self
   {
     return $this->andEquals($column, $value);
   }
@@ -209,7 +210,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andNe(string $column, mixed $value): self
+  public function andNe(string|array|object $column, mixed $value): self
   {
     return $this->andNotEquals($column, $value);
   }
@@ -219,7 +220,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orEq(string $column, mixed $value): self
+  public function orEq(string|array|object $column, mixed $value): self
   {
     return $this->orEquals($column, $value);
   }
@@ -229,7 +230,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orNe(string $column, mixed $value): self
+  public function orNe(string|array|object $column, mixed $value): self
   {
     return $this->orNotEquals($column, $value);
   }
@@ -239,7 +240,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLt(string $column, mixed $value): self
+  public function andLt(string|array|object $column, mixed $value): self
   {
     return $this->andLessThan($column, $value);
   }
@@ -249,7 +250,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLte(string $column, mixed $value): self
+  public function andLte(string|array|object $column, mixed $value): self
   {
     return $this->andLessThanOrEqual($column, $value);
   }
@@ -259,7 +260,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGt(string $column, mixed $value): self
+  public function andGt(string|array|object $column, mixed $value): self
   {
     return $this->andGreaterThan($column, $value);
   }
@@ -269,7 +270,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGte(string $column, mixed $value): self
+  public function andGte(string|array|object $column, mixed $value): self
   {
     return $this->andGreaterThanOrEqual($column, $value);
   }
@@ -279,7 +280,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLt(string $column, mixed $value): self
+  public function orLt(string|array|object $column, mixed $value): self
   {
     return $this->orLessThan($column, $value);
   }
@@ -289,7 +290,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLte(string $column, mixed $value): self
+  public function orLte(string|array|object $column, mixed $value): self
   {
     return $this->orLessThanOrEqual($column, $value);
   }
@@ -299,7 +300,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGt(string $column, mixed $value): self
+  public function orGt(string|array|object $column, mixed $value): self
   {
     return $this->orGreaterThan($column, $value);
   }
@@ -309,7 +310,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGte(string $column, mixed $value): self
+  public function orGte(string|array|object $column, mixed $value): self
   {
     return $this->orGreaterThanOrEqual($column, $value);
   }
@@ -319,7 +320,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andParam(string $column, string $operator, mixed $value, ?string $name = null): self
+  public function andParam(string|array|object $column, string $operator, mixed $value, ?string $name = null): self
   {
     $placeholder        = $this->registerParam($name, $value);
     $this->conditions[] = [$column, $operator, ['raw' => $placeholder]];
@@ -332,7 +333,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orParam(string $column, string $operator, mixed $value, ?string $name = null): self
+  public function orParam(string|array|object $column, string $operator, mixed $value, ?string $name = null): self
   {
     $placeholder = $this->registerParam($name, $value);
     $this->appendOrCondition([$column, $operator, ['raw' => $placeholder]]);
@@ -345,7 +346,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andEqualsParam(string $column, mixed $value, ?string $name = null): self
+  public function andEqualsParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '=', $value, $name);
   }
@@ -355,7 +356,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andNotEqualsParam(string $column, mixed $value, ?string $name = null): self
+  public function andNotEqualsParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '<>', $value, $name);
   }
@@ -365,7 +366,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orEqualsParam(string $column, mixed $value, ?string $name = null): self
+  public function orEqualsParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '=', $value, $name);
   }
@@ -375,7 +376,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orNotEqualsParam(string $column, mixed $value, ?string $name = null): self
+  public function orNotEqualsParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '<>', $value, $name);
   }
@@ -385,7 +386,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLessThanParam(string $column, mixed $value, ?string $name = null): self
+  public function andLessThanParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '<', $value, $name);
   }
@@ -395,7 +396,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLessThanOrEqualParam(string $column, mixed $value, ?string $name = null): self
+  public function andLessThanOrEqualParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '<=', $value, $name);
   }
@@ -405,7 +406,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGreaterThanParam(string $column, mixed $value, ?string $name = null): self
+  public function andGreaterThanParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '>', $value, $name);
   }
@@ -415,7 +416,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGreaterThanOrEqualParam(string $column, mixed $value, ?string $name = null): self
+  public function andGreaterThanOrEqualParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andParam($column, '>=', $value, $name);
   }
@@ -425,7 +426,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLessThanParam(string $column, mixed $value, ?string $name = null): self
+  public function orLessThanParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '<', $value, $name);
   }
@@ -435,7 +436,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLessThanOrEqualParam(string $column, mixed $value, ?string $name = null): self
+  public function orLessThanOrEqualParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '<=', $value, $name);
   }
@@ -445,7 +446,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGreaterThanParam(string $column, mixed $value, ?string $name = null): self
+  public function orGreaterThanParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '>', $value, $name);
   }
@@ -455,7 +456,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGreaterThanOrEqualParam(string $column, mixed $value, ?string $name = null): self
+  public function orGreaterThanOrEqualParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orParam($column, '>=', $value, $name);
   }
@@ -465,7 +466,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andEqParam(string $column, mixed $value, ?string $name = null): self
+  public function andEqParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andEqualsParam($column, $value, $name);
   }
@@ -475,7 +476,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andNeParam(string $column, mixed $value, ?string $name = null): self
+  public function andNeParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andNotEqualsParam($column, $value, $name);
   }
@@ -485,7 +486,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orEqParam(string $column, mixed $value, ?string $name = null): self
+  public function orEqParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orEqualsParam($column, $value, $name);
   }
@@ -495,7 +496,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orNeParam(string $column, mixed $value, ?string $name = null): self
+  public function orNeParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orNotEqualsParam($column, $value, $name);
   }
@@ -505,7 +506,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLtParam(string $column, mixed $value, ?string $name = null): self
+  public function andLtParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andLessThanParam($column, $value, $name);
   }
@@ -515,7 +516,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andLteParam(string $column, mixed $value, ?string $name = null): self
+  public function andLteParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andLessThanOrEqualParam($column, $value, $name);
   }
@@ -525,7 +526,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGtParam(string $column, mixed $value, ?string $name = null): self
+  public function andGtParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andGreaterThanParam($column, $value, $name);
   }
@@ -535,7 +536,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andGteParam(string $column, mixed $value, ?string $name = null): self
+  public function andGteParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->andGreaterThanOrEqualParam($column, $value, $name);
   }
@@ -545,7 +546,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLtParam(string $column, mixed $value, ?string $name = null): self
+  public function orLtParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orLessThanParam($column, $value, $name);
   }
@@ -555,7 +556,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orLteParam(string $column, mixed $value, ?string $name = null): self
+  public function orLteParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orLessThanOrEqualParam($column, $value, $name);
   }
@@ -565,7 +566,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGtParam(string $column, mixed $value, ?string $name = null): self
+  public function orGtParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orGreaterThanParam($column, $value, $name);
   }
@@ -575,7 +576,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orGteParam(string $column, mixed $value, ?string $name = null): self
+  public function orGteParam(string|array|object $column, mixed $value, ?string $name = null): self
   {
     return $this->orGreaterThanOrEqualParam($column, $value, $name);
   }
@@ -587,7 +588,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function andIn(string $column, array $values, ?string $prefix = null): self
+  public function andIn(string|array|object $column, array $values, ?string $prefix = null): self
   {
     $filtered = array_values($values);
 
@@ -614,7 +615,7 @@ final class WhereBuilder
    *
    * @return $this
    */
-  public function orIn(string $column, array $values, ?string $prefix = null): self
+  public function orIn(string|array|object $column, array $values, ?string $prefix = null): self
   {
     $filtered = array_values($values);
 

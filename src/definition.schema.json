@@ -1523,7 +1523,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
         },
         "onUpdate": {
           "type": "string"
@@ -2360,13 +2361,16 @@
           "additionalProperties": true,
           "properties": {
             "expr": {
-              "$ref": "#/$defs/selectExpr"
+              "$ref": "#/$defs/selectExpr",
+              "description": "SQL-Ausdruck oder Ausdrucksobjekt; Stringausdrücke bleiben SQL."
             },
             "col": {
-              "$ref": "#/$defs/sqlString"
+              "$ref": "#/$defs/sqlString",
+              "description": "Explizite Spaltenreferenz; alle Teile des Bezeichners werden dialektgerecht gequotet."
             },
             "column": {
-              "$ref": "#/$defs/sqlString"
+              "$ref": "#/$defs/sqlString",
+              "description": "Alias für col; bleibt eine explizite Spaltenreferenz."
             },
             "dir": {
               "$ref": "#/$defs/sqlString"
@@ -2538,7 +2542,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "PostgreSQL: Native BOOLEAN-/BOOL-Defaults normalisieren 0/1 und Boolean-Strings zu FALSE/TRUE. Numerische Typ-Overrides behalten numerische Defaults. ALTER ohne Typangabe interpretiert numerische Werte unverändert."
         },
         "onUpdate": {
           "type": "string"

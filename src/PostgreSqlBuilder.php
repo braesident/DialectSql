@@ -108,14 +108,16 @@ final class PostgreSqlBuilder
               throw new InvalidArgumentException('PostgreSQL modify_column unterstützt kein enum/identity; nutze raw.');
             }
             $name = self::quote(self::required($column, 'name'));
+            $sqlType = null;
             if (isset($column['type']) || isset($column['raw']) || isset($column['pgsql']) || isset($column['postgres']) || isset($column['postgresql'])) {
-              $statements[] = $prefix.'ALTER COLUMN '.$name.' TYPE '.self::columnType($column);
+              $sqlType = self::columnType($column);
+              $statements[] = $prefix.'ALTER COLUMN '.$name.' TYPE '.$sqlType;
             }
             if (\array_key_exists('nullable', $column)) {
               $statements[] = $prefix.'ALTER COLUMN '.$name.($column['nullable'] ? ' DROP' : ' SET').' NOT NULL';
             }
             if (\array_key_exists('default', $column)) {
-              $statements[] = $prefix.'ALTER COLUMN '.$name.' SET DEFAULT '.self::defaultValue($column['default']);
+              $statements[] = $prefix.'ALTER COLUMN '.$name.' SET DEFAULT '.self::defaultValue($column['default'], $sqlType);
             }
           }
           if (\array_key_exists('comment', $column)) {
@@ -228,7 +230,7 @@ final class PostgreSqlBuilder
     }
     $sql .= ($column['nullable'] ?? ! $identity) ? ' NULL' : ' NOT NULL';
     if (\array_key_exists('default', $column)) {
-      $sql .= ' DEFAULT '.self::defaultValue($column['default']);
+      $sql .= ' DEFAULT '.self::defaultValue($column['default'], $type);
     }
     if ( ! empty($column['enum'])) {
       $values = array_map(static fn ($value) => self::literal((string) $value), $column['enum']);
@@ -384,8 +386,27 @@ final class PostgreSqlBuilder
     return $value;
   }
 
-  private static function defaultValue(mixed $value): string
+  private static function defaultValue(mixed $value, ?string $sqlType = null): string
   {
+    if (null !== $sqlType && \in_array(mb_strtoupper(trim($sqlType)), ['BOOLEAN', 'BOOL', 'PG_CATALOG.BOOL'], true)) {
+      if (null === $value || \is_bool($value)) {
+        return self::literal($value);
+      }
+      if (\in_array($value, [0, 1, 0.0, 1.0], true)) {
+        return $value ? 'TRUE' : 'FALSE';
+      }
+      if (\is_string($value)) {
+        $token = mb_strtolower(trim($value));
+        if (\in_array($token, ['1', 'true', 't', 'tr', 'tru', 'yes', 'y', 'ye', 'on'], true)) {
+          return 'TRUE';
+        }
+        if (\in_array($token, ['0', 'false', 'f', 'fa', 'fal', 'fals', 'no', 'n', 'off', 'of'], true)) {
+          return 'FALSE';
+        }
+      }
+
+      throw new InvalidArgumentException('Boolean-Default benötigt true/false, 0/1, NULL oder einen gültigen PostgreSQL-Boolean-String.');
+    }
     if (\is_string($value) && \in_array(mb_strtoupper($value), ['NOW', 'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME'], true)) {
       return 'NOW' === mb_strtoupper($value) ? 'CURRENT_TIMESTAMP' : mb_strtoupper($value);
     }

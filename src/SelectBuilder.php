@@ -762,8 +762,16 @@ final class SelectBuilder
           $result[] = ['expr' => $order[0], 'dir' => $order[1] ?? null];
           continue;
         }
+        $expr = $order['expr'] ?? $order;
+        if ( ! isset($order['expr'])) {
+          if (\array_key_exists('col', $order)) {
+            $expr = ['col' => $order['col']];
+          } elseif (\array_key_exists('column', $order)) {
+            $expr = ['col' => $order['column']];
+          }
+        }
         $result[] = [
-          'expr' => $order['expr'] ?? $order['col'] ?? $order['column'] ?? $order,
+          'expr' => $expr,
           'dir'  => $order['dir'] ?? $order['direction'] ?? null
         ];
         continue;
