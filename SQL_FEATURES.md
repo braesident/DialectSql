@@ -1,6 +1,6 @@
 # SQL-Funktionsmatrix und Projektliste
 
-Stand: 24.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des PostgreSQL-Dialekts, der Eingabeprüfung und der SELECT-/DML-/Upsert-Funktionen. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
+Stand: 26.11.2026. Diese Liste beschreibt den aktuellen Quellcode einschließlich des PostgreSQL-Dialekts, der Eingabeprüfung und der SELECT-/DML-/Upsert-Funktionen. Sie dient zugleich als Bestandsaufnahme und Arbeitsliste. SQL-Befehle, Klauseln, Operatoren und wichtige Funktionsgruppen werden gemeinsam erfasst, weil beispielsweise `LIMIT` kein eigenständiger Befehl ist.
 
 Die Liste deckt die üblichen Abfragen, Datenänderungen, Schemaänderungen, Datentypen, Transaktionen sowie größere Verwaltungsbereiche ab. Sie ist kein vollständiger Katalog sämtlicher Herstellerfunktionen, Serveroptionen, Erweiterungen oder versionsabhängiger Schlüsselwörter. Seltene Verwaltungsbefehle sind teilweise als Befehlsfamilie zusammengefasst.
 
@@ -154,7 +154,7 @@ Strings sind in SELECT-Ausdrücken und Vergleichstripeln grundsätzlich SQL-Ausd
 | Zeilen-/Tupelvergleiche | Offen | Teil | Offen | Keine Tupel-AST; SQL Server hat nur Teilentsprechungen. |
 | Boolesche Literale | Ja | Ja | Ja | PHP/JSON `true`/`false`: MySQL/SQL Server `1`/`0`, PostgreSQL `TRUE`/`FALSE`. |
 | PDO-Platzhalter | Ja | Ja | Ja | `{"param":"id"}` / `SelectBuilder::param('id')`; Parameternamen werden geprüft. Bestehendes `{"raw":":id"}` bleibt möglich; Werte separat binden. |
-| Upsert-Eingabewert / Bestandswert | Ja | Ja | Ja | Nur im Upsert-SET: `{"incoming":"stock"}` / `SelectBuilder::incoming('stock')` bezeichnet den Eingabewert, `{"col":"stock"}` den vorhandenen Wert. Verschachtelte Ausdrücke, Funktionen und CASE sind möglich. |
+| Upsert-Eingabewert / Bestandswert | Ja | Ja | Ja | Nur im Upsert-SET: `{"incoming":"stock"}` / `SelectBuilder::incoming('stock')` bezeichnet den Eingabewert, `{"col":"stock"}` den vorhandenen Wert. MySQL/MariaDB qualifizieren Bestandsreferenzen mit der Zieltabelle, um Mehrdeutigkeit mit dem Eingabealias zu vermeiden. Verschachtelte Ausdrücke, Funktionen und CASE sind möglich. |
 | WhereBuilder + Parameterlisten | Ja | Ja | Ja | `andEqualsParam()`, `andIn()`, `orIn()`, `conditions()`, `params()`; erzeugt keine eigene Verbindung. |
 
 Die generischen `op`-/`fn`-Felder prüfen nicht, ob ein beliebiger Operator oder Funktionsname auf dem Zielserver existiert. Syntaxübernahme ist daher nur **Teil**-Unterstützung und keine Dialektübersetzung.
@@ -454,7 +454,7 @@ Der Renderer akzeptiert auch Maps ohne `type`, optional mit `only`/`dialects`/`i
 
 | Status / Priorität | Aufgabe | Begründung / Ziel |
 | --- | --- | --- |
-| Basisstand geprüft / Hoch | Neue Upsert-Fälle gegen alle drei Server ausführen | GitHub-Lauf #1 mit Unit- und Integrationstests war am 24.11.2026 erfolgreich; dieser Stand enthält noch keine Upsert-API. Die neuen Upsert-Integrationstests müssen im nächsten CI-Lauf geprüft werden. Lokale Läufe ohne Test-DSNs werden ausdrücklich übersprungen. [Anleitung](tests/README.md). |
+| Teilweise geprüft / Hoch | MySQL-Upsert-Korrektur im CI prüfen | Im GitHub-Lauf vom 26.11.2026 waren beide Unit-Jobs und die SQL-Server-/PostgreSQL-Integration erfolgreich. MySQL meldete Fehler 1052 bei einer unqualifizierten Bestandsreferenz. Der Builder qualifiziert diese nun mit der Zieltabelle; die Korrektur und zusätzliche Funktionen-/CASE-Fälle benötigen einen neuen Serverlauf. [Teststand und Anleitung](tests/README.md). |
 | Erledigt | MySQL OFFSET ohne LIMIT | Ersatzwert wird als SQL-String erzeugt, ohne PHP-Integerüberlauf. |
 | Erledigt | SQL Server SELECT limit=0 | TOP (0) liefert eine leere Ergebnismenge ohne FETCH 0. |
 | Erledigt | MySQL DML-Joins mit LIMIT | Ungültige Kombination wird ebenso wie Alias-DELETE mit LIMIT ausdrücklich abgelehnt. |

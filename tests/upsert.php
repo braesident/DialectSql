@@ -16,7 +16,7 @@ $upsert = [
   'mysqlConflict' => 'any_unique'
 ];
 $expected = [
-  'mysql' => "INSERT INTO `products` (`sku`, `name`, `stock`) VALUES ('A', 'Öl', 5) AS `__dialectsql_incoming` ON DUPLICATE KEY UPDATE `name` = `__dialectsql_incoming`.`name`, `stock` = `stock` + `__dialectsql_incoming`.`stock`",
+  'mysql' => "INSERT INTO `products` (`sku`, `name`, `stock`) VALUES ('A', 'Öl', 5) AS `__dialectsql_incoming` ON DUPLICATE KEY UPDATE `name` = `__dialectsql_incoming`.`name`, `stock` = `products`.`stock` + `__dialectsql_incoming`.`stock`",
   'pgsql' => 'INSERT INTO "products" AS "__dialectsql_target" ("sku", "name", "stock") VALUES (\'A\', \'Öl\', 5) ON CONFLICT ("sku") DO UPDATE SET "name" = "excluded"."name", "stock" = "__dialectsql_target"."stock" + "excluded"."stock"',
   'sqlsrv' => 'MERGE INTO [dbo].[products] WITH (HOLDLOCK) AS [__dialectsql_target] USING (VALUES (N\'A\', N\'Öl\', 5)) AS [__dialectsql_incoming] ([sku], [name], [stock]) ON [__dialectsql_target].[sku] = [__dialectsql_incoming].[sku] WHEN MATCHED THEN UPDATE SET [name] = [__dialectsql_incoming].[name], [stock] = [__dialectsql_target].[stock] + [__dialectsql_incoming].[stock] WHEN NOT MATCHED THEN INSERT ([sku], [name], [stock]) VALUES ([__dialectsql_incoming].[sku], [__dialectsql_incoming].[name], [__dialectsql_incoming].[stock]);'
 ];
@@ -70,6 +70,9 @@ foreach (['mysql', 'sqlsrv', 'pgsql'] as $dialect) {
   ];
   $sql = SqlBuilder::build($expression, $dialect);
   check(str_contains($sql, 'COALESCE(') && str_contains($sql, 'CASE WHEN'), 'Incoming-Werte müssen in verschachtelten Funktionen und CASE verwendbar sein.');
+  if ('mysql' === $dialect) {
+    check(str_contains($sql, 'COALESCE(`__dialectsql_incoming`.`name`, `products`.`name`)') && str_contains($sql, 'ELSE `products`.`stock` END'), 'MySQL muss Bestandswerte auch in Funktionen und CASE von Eingabewerten unterscheiden.');
+  }
   $literal = $upsert;
   $literal['set'] = ['name' => 'incoming', 'stock' => null];
   $sql = SqlBuilder::build($literal, $dialect);
@@ -126,6 +129,17 @@ unset($noMysqlMode['mysqlConflict']);
 rejectsSql(static fn () => SqlBuilder::build($noMysqlMode, 'mysql'), 'MySQLs abweichendes Konfliktverhalten muss ausdrücklich gewählt werden.', 'mysqlConflict');
 check(str_contains(SqlBuilder::build($noMysqlMode, 'pgsql'), 'ON CONFLICT'), 'PostgreSQL benötigt keine MySQL-spezifische Option.');
 check(str_contains(SqlBuilder::build($noMysqlMode, 'sqlsrv'), 'MERGE'), 'SQL Server benötigt keine MySQL-spezifische Option.');
+foreach ([['dialect' => 'mysql', 'serverVersionId' => 80400], ['dialect' => 'mysql', 'serverVersionId' => 50744], ['dialect' => 'mariadb', 'serverVersionId' => 101100]] as $context) {
+  foreach ([
+    'products' => '`products`.`stock`',
+    'shop.products' => '`shop`.`products`.`stock`',
+    'shop.pro`ducts' => '`shop`.`pro``ducts`.`stock`',
+    '__dialectsql_incoming' => '`__dialectsql_incoming`.`stock`'
+  ] as $table => $reference) {
+    $sql = SqlBuilder::build(array_replace($upsert, ['table' => $table]), $context);
+    check(str_contains($sql, '`stock` = '.$reference.' + '), 'MySQL/MariaDB müssen Bestandswerte eindeutig und jeden Bestandteil des Tabellennamens korrekt quoten.');
+  }
+}
 foreach ([['dialect' => 'mysql', 'serverVersionId' => 50744], ['dialect' => 'mysql', 'serverVersionId' => 80018], ['dialect' => 'mariadb', 'serverVersionId' => 101100]] as $context) {
   $sql = SqlBuilder::build($upsert, $context);
   check(str_contains($sql, 'VALUES(`name`)') && ! str_contains($sql, ' AS `__dialectsql_incoming`'), 'Bekannte ältere MySQL-Versionen und MariaDB müssen VALUES(column) verwenden.');

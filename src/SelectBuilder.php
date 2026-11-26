@@ -1186,7 +1186,7 @@ final class SelectBuilder
             }
             $target = $this->context['upsert']['target'];
 
-            return (null !== $target ? $this->quoteIdentifier($target).'.' : '').$this->quoteIdentifier($name);
+            return Dialect::path($target, $this->dialect).'.'.$this->quoteIdentifier($name);
           }
           return Dialect::path($expr['col'], $this->dialect);
         }

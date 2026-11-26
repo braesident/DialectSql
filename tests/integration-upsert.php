@@ -63,6 +63,20 @@ function runUpsertIntegration(string $dialect, string $suffix, callable $run, ar
   $rows = $run($query);
   check(10 === (int) $rows[1]['quantity'] && 'Parameter 東京' === $rows[1]['name'], 'Upsert muss gebundene Eingabewerte einmalig binden und im UPDATE wiederverwenden.');
 
+  $nested = $definition;
+  $nested['values'] = [['tenant' => 8, 'sku' => 'A', 'external' => 'Y', 'name' => 'Funktion', 'quantity' => 0]];
+  $nested['set'] = [
+    'name' => ['fn' => 'concat', 'args' => [['col' => 'name'], ['value' => ' + '], ['incoming' => 'name']]],
+    'quantity' => ['case' => [
+      'when' => [['cond' => [['incoming' => 'quantity'], '>', 0], 'then' => ['incoming' => 'quantity']]],
+      'else' => ['col' => 'quantity']
+    ]]
+  ];
+  $run($nested);
+  $rows = $run($query);
+  check('Parameter 東京 + Funktion' === $rows[1]['name'], 'Upsert-Funktionen müssen Bestands- und Eingabespalten eindeutig unterscheiden.');
+  check(10 === (int) $rows[1]['quantity'], 'Upsert-CASE muss im ELSE-Zweig den Bestandswert erhalten.');
+
   // MySQL cannot target one selected UNIQUE key. Its explicitly chosen broader behavior is intentional.
   $definition['values'] = [['tenant' => 9, 'sku' => 'B', 'external' => 'X', 'name' => 'secondary', 'quantity' => 1]];
   if ('mysql' === $dialect) {

@@ -1523,7 +1523,7 @@ final class SqlBuilder
     $upsertContext['upsert'] = [
       'columns' => $columns,
       'source' => 'pgsql' === $dialect ? 'excluded' : $sourceAlias,
-      'target' => 'mysql' === $dialect ? null : $targetAlias,
+      'target' => 'mysql' === $dialect ? $table : $targetAlias,
       'mysqlValues' => $mysqlValues
     ];
     $set = [];
